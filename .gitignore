@@ -27,7 +27,7 @@ build_*/
 *.weights
 *.mp4
 *.jpg
-make_cscope.sh
+*.sh
 cscope.files
 tags
 build/*.cmake
