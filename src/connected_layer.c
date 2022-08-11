@@ -11,6 +11,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "j_header.h"
+
 size_t get_connected_workspace_size(layer l)
 {
 #ifdef CUDNN

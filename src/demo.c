@@ -20,10 +20,12 @@
 #include "http_stream.h"
 #include "j_header.h"
 
+#if defined SYNC || defined ASYNC || defined TWO_STAGE
 int mem_arr[3][2000]={0,};
 int base_mTOT=0;
 int base_mCPU=0;
 int base_mGPU=0;
+#endif
 
 static char **demo_names;
 static image **demo_alphabet;
@@ -146,6 +148,7 @@ double get_wall_time()
     return (double)walltime.tv_sec + (double)walltime.tv_usec * .000001;
 }
 
+#if defined SYNC || defined ASYNC || defined TWO_STAGE
 void printMEM()
 {
     char cmd[1024];
@@ -242,6 +245,7 @@ void mem()
     printf("mGPU: %dkB (=%dMB)\n",mGPU,mGPU/1024);
 
 }
+#endif
 
 void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int cam_index, const char *filename, char **names, int classes, int avgframes,
     int frame_skip, char *prefix, char *out_filename, int mjpeg_port, int dontdraw_bbox, int json_port, int dont_show, int ext_output, int letter_box_in, int time_limit_sec, char *http_post_host,
@@ -264,7 +268,15 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
     net = parse_network_cfg_custom(cfgfile, 1, 1);    // set batch=1
     if(weightfile){
         net.weights_file_name = weightfile;
+
+#ifndef TWO_STAGE
         load_weights(&net, weightfile);
+#else
+#ifndef ONDEMAND_LOAD
+        load_weights(&net, weightfile);
+#endif
+#endif //Not TWO_STAGE
+
     }
     if (net.letter_box) letter_box = 1;
     net.benchmark_layers = benchmark_layers;
@@ -273,7 +285,7 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
     calculate_binary_weights(net);
 #endif //ONDEMAND_LOAD
     srand(2222222);
-
+    
     if(filename){
         printf("video file: %s\n", filename);
         cap = get_capture_video_stream(filename);
@@ -327,6 +339,9 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
     det_img = in_img;
     det_s = in_s;
 
+    int count = 0;
+    printf("count %d\n",count);
+
     for (j = 0; j < avg_frames / 2; ++j) {
         free_detections(dets, nboxes);
         fetch_in_thread_sync(0); //fetch_in_thread(0);
@@ -335,7 +350,7 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
         det_s = in_s;
     }
 
-    int count = 0;
+
     if(!prefix && !dont_show){
         int full_screen = 0;
         create_window_cv("Demo", full_screen, 640, 480);
@@ -367,6 +382,7 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
     int frame_counter = 0;
     int global_frame_counter = 0;
 
+
     while(1){
         ++count;
         {
@@ -374,8 +390,8 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
             int local_nboxes = nboxes;
             detection *local_dets = dets;
             this_thread_yield();
-            printf("count %d\n",count);
-            if(count == 500) flag_exit = 1;
+            //printf("count %d\n",count);
+            //if(count == 1000) flag_exit = 1;
 
             if (!benchmark) custom_atomic_store_int(&run_fetch_in_thread, 1); // if (custom_create_thread(&fetch_thread, 0, fetch_in_thread, 0)) error("Thread creation failed", DARKNET_LOC);
             custom_atomic_store_int(&run_detect_in_thread, 1); // if (custom_create_thread(&detect_thread, 0, detect_in_thread, 0)) error("Thread creation failed", DARKNET_LOC);
@@ -391,7 +407,7 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
             //printf("\033[2J");
             //printf("\033[1;1H");
             //printf("\nFPS:%.1f\n", fps);
-//            printf("Objects:\n\n");
+            //printf("Objects:\n\n");
 
             ++frame_id;
             if (demo_json_port > 0) {
@@ -509,36 +525,19 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
 
     custom_join(detect_thread, 0);
     custom_join(fetch_thread, 0);
-    
-//    for(int a=0; a<count; a++) {
-//        for(int b=0; b<162; b++) {
-//            printf("%0.2lf,",a,b,k_time[a][b]/1000.0);
-//        }
-//        printf("\n");
-//    }
-
-//    FILE* jfp = fopen("/aveesSSD1TB/etc/csv_txt/layer_kernel_time.csv", "wb");
-//    fprintf(jfp,"r_time,c_time,k_time\n");
-//    for(int a=0; a<count; a++) {
-//        for(int b=0; b<162; b++) {
-//            fprintf(jfp,"%0.2lf,",a,b,k_time[a][b]/1000.0);
-//        }
-//        fprintf(jfp,"\n");
-//    }
-//    for(int a=0; a<162; a++) 
-//        fprintf(jfp,"%0.2lf,%0.2lf,%0.2lf\n",r_time[a],c_time[a],k_time[a]);
-//    fclose(jfp);
-
-//    for(int a=0;a<count;a++){
-//        printf("%0.3lf,",e_time[a]);
-//    }
-    printf("\n");
-
-	// Destroy cudaEvent
 
     // free memory
     free_image(in_s);
     free_detections(dets, nboxes);
+
+#ifdef ASYNC
+	//free buffer & cudaEvent
+	free(hGlobal_layer_weights);
+	cudaFree(global_layer_weights);
+	cudaEventDestroy(copyEvent);
+	for(int k = 0; k<net.n; k++) cudaEventDestroy(kernel[k]);
+#endif
+
 
     demo_index = (avg_frames + demo_index - 1) % avg_frames;
     for (j = 0; j < avg_frames; ++j) {

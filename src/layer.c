@@ -88,17 +88,23 @@ void free_layer_custom(layer l, int keep_cudnn_desc)
     if (l.concat)             free(l.concat);
     if (l.concat_delta)       free(l.concat_delta);
     if (l.binary_weights)     free(l.binary_weights);
-    if (l.biases)             free(l.biases), l.biases = NULL;
     if (l.bias_updates)       free(l.bias_updates), l.bias_updates = NULL;
-    if (l.scales)             free(l.scales), l.scales = NULL;
     if (l.scale_updates)      free(l.scale_updates), l.scale_updates = NULL;
     if (l.biases_ema)         free(l.biases_ema), l.biases = NULL;
     if (l.scales_ema)         free(l.scales_ema), l.scales = NULL;
     if (l.weights_ema)        free(l.weights_ema), l.weights = NULL;
-    if (l.weights)            free(l.weights), l.weights = NULL;
     if (l.weight_updates)     free(l.weight_updates), l.weight_updates = NULL;
     if (l.align_bit_weights)  free(l.align_bit_weights);
     if (l.mean_arr)           free(l.mean_arr);
+    
+#ifndef ONDEMAND_LOAD
+    if (l.biases)             free(l.biases), l.biases = NULL;
+    if (l.scales)             free(l.scales), l.scales = NULL;
+	if (l.rolling_mean)       free(l.rolling_mean), l.rolling_mean = NULL;
+    if (l.rolling_variance)   free(l.rolling_variance), l.rolling_variance = NULL;
+    if (l.weights)            free(l.weights), l.weights = NULL;
+#endif // ONDEMAND_LOAD
+
 #ifdef GPU
     if (l.delta && l.delta_pinned) {
         cudaFreeHost(l.delta);
@@ -119,8 +125,6 @@ void free_layer_custom(layer l, int keep_cudnn_desc)
     if (l.variance)           free(l.variance), l.variance = NULL;
     if (l.mean_delta)         free(l.mean_delta), l.mean_delta = NULL;
     if (l.variance_delta)     free(l.variance_delta), l.variance_delta = NULL;
-    if (l.rolling_mean)       free(l.rolling_mean), l.rolling_mean = NULL;
-    if (l.rolling_variance)   free(l.rolling_variance), l.rolling_variance = NULL;
     if (l.x)                  free(l.x);
     if (l.x_norm)             free(l.x_norm);
     if (l.m)                  free(l.m);
@@ -174,8 +178,6 @@ void free_layer_custom(layer l, int keep_cudnn_desc)
     if (l.variance_gpu)            cuda_free(l.variance_gpu), l.variance_gpu = NULL;
     if (l.m_cbn_avg_gpu)           cuda_free(l.m_cbn_avg_gpu), l.m_cbn_avg_gpu = NULL;
     if (l.v_cbn_avg_gpu)           cuda_free(l.v_cbn_avg_gpu), l.v_cbn_avg_gpu = NULL;
-    if (l.rolling_mean_gpu)        cuda_free(l.rolling_mean_gpu), l.rolling_mean_gpu = NULL;
-    if (l.rolling_variance_gpu)    cuda_free(l.rolling_variance_gpu), l.rolling_variance_gpu = NULL;
     if (l.variance_delta_gpu)      cuda_free(l.variance_delta_gpu), l.variance_delta_gpu = NULL;
     if (l.mean_delta_gpu)          cuda_free(l.mean_delta_gpu), l.mean_delta_gpu = NULL;
     if (l.x_norm_gpu)              cuda_free(l.x_norm_gpu);
@@ -189,14 +191,19 @@ void free_layer_custom(layer l, int keep_cudnn_desc)
     if (l.align_workspace_gpu)     cuda_free(l.align_workspace_gpu);
     if (l.transposed_align_workspace_gpu) cuda_free(l.transposed_align_workspace_gpu);
 
+#ifndef ONDEMAND_LOAD
+    if (l.biases_gpu)              cuda_free(l.biases_gpu), l.biases_gpu = NULL;
+    if (l.scales_gpu)              cuda_free(l.scales_gpu), l.scales_gpu = NULL;
+    if (l.rolling_mean_gpu)        cuda_free(l.rolling_mean_gpu), l.rolling_mean_gpu = NULL;
+    if (l.rolling_variance_gpu)    cuda_free(l.rolling_variance_gpu), l.rolling_variance_gpu = NULL;
     if (l.weights_gpu)             cuda_free(l.weights_gpu), l.weights_gpu = NULL;
+#endif // ONDEMAND_LOAD
+
     if (l.weight_updates_gpu)      cuda_free(l.weight_updates_gpu), l.weight_updates_gpu = NULL;
     if (l.weight_deform_gpu)       cuda_free(l.weight_deform_gpu), l.weight_deform_gpu = NULL;
     if (l.weights_gpu16)           cuda_free(l.weights_gpu16), l.weights_gpu16 = NULL;
     if (l.weight_updates_gpu16)    cuda_free(l.weight_updates_gpu16), l.weight_updates_gpu16 = NULL;
-    if (l.biases_gpu)              cuda_free(l.biases_gpu), l.biases_gpu = NULL;
     if (l.bias_updates_gpu)        cuda_free(l.bias_updates_gpu), l.bias_updates_gpu = NULL;
-    if (l.scales_gpu)              cuda_free(l.scales_gpu), l.scales_gpu = NULL;
     if (l.scale_updates_gpu)       cuda_free(l.scale_updates_gpu), l.scale_updates_gpu = NULL;
     if (l.input_antialiasing_gpu)  cuda_free(l.input_antialiasing_gpu), l.input_antialiasing_gpu = NULL;
     if (l.optimized_memory < 2) {

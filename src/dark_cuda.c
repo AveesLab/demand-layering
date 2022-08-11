@@ -140,7 +140,7 @@ cudaStream_t get_cuda_stream() {
     return streamsArray[i];
 }
 
-/*
+
 static cudaStream_t streamsArray2[16];    // cudaStreamSynchronize( get_cuda_memcpy_stream() );
 static int streamInit2[16] = { 0 };
 
@@ -161,7 +161,7 @@ cudaStream_t get_cuda_memcpy_stream() {
     }
     return streamsArray2[i];
 }
-*/
+
 
 #ifdef CUDNN
 static int cudnnInit[16] = { 0 };
@@ -584,8 +584,21 @@ void cuda_free_host(float *x_cpu)
 void cuda_push_array(float *x_gpu, float *x, size_t n)
 {
     size_t size = sizeof(float)*n;
+
+#ifdef SEQUENTIAL
+    cudaError_t status = cudaMemcpy(x_gpu, x, size, cudaMemcpyHostToDevice);
+    //cudaError_t status = cudaMemcpyAsync(x_gpu, x, size, cudaMemcpyHostToDevice, get_cuda_stream());
+#endif
+#if defined SYNC || defined ASYNC
+//    cudaError_t status = cudaMemcpy(x_gpu, x, size, cudaMemcpyHostToDevice);
+//    cudaError_t status = cudaMemcpyAsync(x_gpu, x, size, cudaMemcpyHostToDevice, get_cuda_stream());
+    cudaError_t status = cudaMemcpyAsync(x_gpu, x, size, cudaMemcpyHostToDevice, get_cuda_memcpy_stream());
+#endif // SYNC, ASYNC
+#ifdef TWO_STAGE
     //cudaError_t status = cudaMemcpy(x_gpu, x, size, cudaMemcpyHostToDevice);
     cudaError_t status = cudaMemcpyAsync(x_gpu, x, size, cudaMemcpyHostToDevice, get_cuda_stream());
+#endif
+
     CHECK_CUDA(status);
 }
 

@@ -577,7 +577,6 @@ void forward_convolutional_layer_gpu(convolutional_layer l, network_state state)
             //float *im = state.input + i*l.c*l.h*l.w;
             float *im = state.input + (i*l.groups + j)*l.c / l.groups*l.h*l.w;
             float *a = l.weights_gpu + j*l.nweights / l.groups;
-//            l.weights_gpu  = l.weights_gpu + j*l.nweights / l.groups;
             float *b = state.workspace;
             float *c = l.output_gpu + (i*l.groups + j)*n*m;
             if (l.size == 1 && l.stride == 1 && l.dilation == 1) {
@@ -598,7 +597,6 @@ void forward_convolutional_layer_gpu(convolutional_layer l, network_state state)
             }
             //gemm_ongpu(0, 0, m, n, k, 1., a, k, b, n, 1., c + i*m*n, n);
             gemm_ongpu(0, 0, m, n, k, 1, a, k, b, n, 1, c, n);
-//            gemm_ongpu(0, 0, m, n, k, 1, l.weights_gpu, k, b, n, 1, c, n);
         }
     }
 
