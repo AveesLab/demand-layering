@@ -1,2 +1,2 @@
-# darknet-demand-layaring
+# demand-layaring
 Darknet memory optimization
