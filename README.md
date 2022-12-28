@@ -2,8 +2,11 @@
 Darknet memory optimization
 
 0-1. git clone https://github.com/AlexeyAB/darknet.git
+
 0-2. git clone "This Repository"
+
 0-3. Copy files and folders that are not in the "demand-layering" folder from "daknet" folder
+
 > /backup, /build, /cfg, /data, /obj folders
 > .sh files
 
