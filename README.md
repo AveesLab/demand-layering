@@ -12,6 +12,9 @@ Darknet memory optimization
 > .sh files
 
 
+
+
+
 1. Download .weigts files (already apply the batch normalization)
 >> https://drive.google.com/drive/folders/1gCFwwub2tJyNmBmxV1baVvYqYY6X3rKO?usp=sharing
 
