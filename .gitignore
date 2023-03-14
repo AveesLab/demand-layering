@@ -21,7 +21,6 @@ submission/
 
 weights/
 
-!build/darknet/YoloWrapper.cs
 .fuse*
 *.weights
 *.mp4
