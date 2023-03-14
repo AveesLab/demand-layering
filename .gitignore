@@ -10,7 +10,7 @@
 *.lib
 *.dylib
 mnist/
-data/
+
 caffe/
 grasp/
 images/
@@ -18,27 +18,18 @@ opencv/
 convnet/
 decaf/
 submission/
-cfg/
+
 weights/
-build/darknet/*
-build_*/
+
 !build/darknet/YoloWrapper.cs
 .fuse*
 *.weights
 *.mp4
 *.jpg
-*.sh
+
 cscope.files
 tags
-build/*.cmake
-build/*.ninja
-build/*.txt
-build/*.json
-build/CMakeFiles/
-build/detect_cuda_compute_capabilities.cu
-build/.ninja_deps
-build/.ninja_log
-build/Makefile
+
 
 # OS Generated #
 .DS_Store*
@@ -57,7 +48,6 @@ Thumbs.db
 # Build artifacts
 lib/
 share/
-include/darknet/
 uselib
 uselib_track
 darknet
