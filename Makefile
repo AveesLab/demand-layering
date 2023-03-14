@@ -13,11 +13,6 @@ DIRECT_IO=1
 NVTX=1
 
 SEQUENTIAL=1
-SYNC=0
-ASYNC=0
-TWO_STAGE=0
-
-TRADEOFF=1
 
 # set GPU=1 and CUDNN=1 to speedup on GPU
 # set CUDNN_HALF=1 to further speedup 3 x times (Mixed-precision on Tensor Cores) GPU: Volta, Xavier, Turing and higher
@@ -97,22 +92,6 @@ endif
 
 ifeq ($(SEQUENTIAL), 1)
 CFLAGS+= -DSEQUENTIAL
-endif
-
-ifeq ($(SYNC), 1)
-CFLAGS+= -DSYNC
-endif
-
-ifeq ($(ASYNC), 1)
-CFLAGS+= -DASYNC
-endif
-
-ifeq ($(TWO_STAGE), 1)
-CFLAGS+= -DTWO_STAGE
-endif
-
-ifeq ($(TRADEOFF), 1)
-CFLAGS+= -DTRADEOFF
 endif
 
 ifeq ($(DIRECT_IO), 1)
