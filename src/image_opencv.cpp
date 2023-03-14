@@ -605,10 +605,8 @@ extern "C" cap_cv* get_capture_webcam(int index)
     cv::VideoCapture* cap = NULL;
     try {
         cap = new cv::VideoCapture(index);
-        cap->set(cv::CAP_PROP_FRAME_WIDTH, 640);//OpenCV4
-        cap->set(cv::CAP_PROP_FRAME_HEIGHT, 480);
-        //cap->set(CV_CAP_PROP_FRAME_WIDTH, 640);
-        //cap->set(CV_CAP_PROP_FRAME_HEIGHT, 480);
+        //cap->set(CV_CAP_PROP_FRAME_WIDTH, 1280);
+        //cap->set(CV_CAP_PROP_FRAME_HEIGHT, 960);
     }
     catch (...) {
         cerr << " OpenCV exception: Web-camera " << index << " can't be opened! \n";
@@ -1019,8 +1017,7 @@ extern "C" void draw_detections_cv_v3(mat_cv* mat, detection *dets, int num, flo
                 if (ext_output)
                     printf("\t(left_x: %4.0f   top_y: %4.0f   width: %4.0f   height: %4.0f)\n",
                     (float)left, (float)top, b.w*show_img->cols, b.h*show_img->rows);
-                else
-                    printf(" ");
+//                else
 //                    printf("\n");
 
                 cv::rectangle(*show_img, pt_text_bg1, pt_text_bg2, color, width, 8, 0);

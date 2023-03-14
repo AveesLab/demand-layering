@@ -1280,6 +1280,12 @@ static float lrelu(float src) {
 void fuse_conv_batchnorm(network net)
 {
     int j;
+
+/** Make after_batch model files**/
+    int sum_batch=0;
+    FILE *fp = fopen("./after_batch_model.weights","ab");
+/** Make after_batch model files**/
+
     for (j = 0; j < net.n; ++j) {
         layer *l = &net.layers[j];
 
@@ -1307,6 +1313,14 @@ void fuse_conv_batchnorm(network net)
                     }
                 }
 
+/** Make after_batch model files**/
+                fwrite(l->biases,sizeof(float),l->n,fp);
+                fwrite(l->weights,sizeof(float),l->nweights,fp);
+//                printf("%d batch_layer l.biases %lf l.weights %lf \n",j,l->biases[0],l->weights[0]);
+                sum_batch += l->n + l->nweights;
+//                printf("%d layer param size: %d (%d)\n",j,(l->n+l->nweights)*4,sum_batch*4);
+/** Make after_batch model files**/
+
                 free_convolutional_batchnorm(l);
                 l->batch_normalize = 0;
 #ifdef GPU
@@ -1315,6 +1329,17 @@ void fuse_conv_batchnorm(network net)
                 }
 #endif
             }
+
+/** Make after_batch model files**/
+            else if (!l->batch_normalize){
+                fwrite(l->biases,sizeof(float),l->n,fp);
+                fwrite(l->weights,sizeof(float),l->nweights,fp);
+//                printf("%d !batch_layer l.biases %lf l.weights %lf \n",j,l->biases[0],l->weights[0]);
+                sum_batch += l->n + l->nweights;
+//                printf("%d layer param size: %d (%d)\n",j,(l->n+l->nweights)*4,sum_batch*4);
+            }
+/** Make after_batch model files**/
+
         }
         else  if (l->type == SHORTCUT && l->weights && l->weights_normalization)
         {
@@ -1372,6 +1397,11 @@ void fuse_conv_batchnorm(network net)
             //printf(" Fusion skip layer type: %d \n", l->type);
         }
     }
+
+/** Make after_batch model files**/
+    fclose(fp);
+/** Make after_batch model files**/
+
 }
 
 void forward_blank_layer(layer l, network_state state) {}

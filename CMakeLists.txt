@@ -21,11 +21,17 @@ option(ENABLE_CUDNN "Enable CUDNN" ON)
 option(ENABLE_CUDNN_HALF "Enable CUDNN Half precision" ON)
 option(ENABLE_ZED_CAMERA "Enable ZED Camera support" ON)
 option(ENABLE_VCPKG_INTEGRATION "Enable VCPKG integration" ON)
+option(ENABLE_DEPLOY_CUSTOM_CMAKE_MODULES "Copy custom CMake modules for downstream integration" OFF)
 option(ENABLE_CSHARP_WRAPPER "Enable building a csharp wrapper" OFF)
 option(VCPKG_BUILD_OPENCV_WITH_CUDA "Build OpenCV with CUDA extension integration" ON)
 option(VCPKG_USE_OPENCV2 "Use legacy OpenCV 2" OFF)
 option(VCPKG_USE_OPENCV3 "Use legacy OpenCV 3" OFF)
 option(VCPKG_USE_OPENCV4 "Use OpenCV 4" ON)
+
+if(DEFINED ENV{VCPKG_DEFAULT_TRIPLET})
+  message(STATUS "Setting default vcpkg target triplet to $ENV{VCPKG_DEFAULT_TRIPLET}")
+  set(VCPKG_TARGET_TRIPLET $ENV{VCPKG_DEFAULT_TRIPLET})
+endif()
 
 if(VCPKG_USE_OPENCV4 AND VCPKG_USE_OPENCV2)
   message(STATUS "You required vcpkg feature related to OpenCV 2 but forgot to turn off those for OpenCV 4, doing that for you")
@@ -153,8 +159,13 @@ if(ENABLE_CUDA)
       message(STATUS "CUDACXX: $ENV{CUDACXX}")
       message(FATAL_ERROR "Unsupported CUDA version, please upgrade to CUDA 9+ or disable CUDA with explicitly with -DENABLE_CUDA=OFF")
     else()
+      if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.23.0" AND NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+        set(CMAKE_CUDA_ARCHITECTURES all-major)
+      endif()
       message(STATUS "Selected CMAKE_CUDA_ARCHITECTURES: ${CMAKE_CUDA_ARCHITECTURES}")
-      if(70 IN_LIST CMAKE_CUDA_ARCHITECTURES OR
+      if("all-major" IN_LIST CMAKE_CUDA_ARCHITECTURES OR
+         "all" IN_LIST CMAKE_CUDA_ARCHITECTURES OR
+         70 IN_LIST CMAKE_CUDA_ARCHITECTURES OR
          72 IN_LIST CMAKE_CUDA_ARCHITECTURES OR
          75 IN_LIST CMAKE_CUDA_ARCHITECTURES OR
          80 IN_LIST CMAKE_CUDA_ARCHITECTURES OR
@@ -579,6 +590,14 @@ install(FILES
   "${PROJECT_BINARY_DIR}/DarknetConfigVersion.cmake"
   DESTINATION "${INSTALL_CMAKE_DIR}"
 )
+
+if (ENABLE_DEPLOY_CUSTOM_CMAKE_MODULES)
+  install(FILES
+    "${CMAKE_CURRENT_LIST_DIR}/cmake/Modules/FindCUDNN.cmake"
+    "${CMAKE_CURRENT_LIST_DIR}/cmake/Modules/FindPThreads4W.cmake"
+    DESTINATION "${INSTALL_CMAKE_DIR}"
+  )
+endif()
 
 if(ENABLE_CSHARP_WRAPPER)
   add_subdirectory(src/csharp)

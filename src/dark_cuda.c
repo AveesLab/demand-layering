@@ -18,14 +18,13 @@ int gpu_index = 0;
 #include <cuda.h>
 #include <stdio.h>
 
+#ifndef USE_CMAKE_LIBS
 #pragma comment(lib, "cuda.lib")
 
-
 #ifdef CUDNN
-#ifndef USE_CMAKE_LIBS
 #pragma comment(lib, "cudnn.lib")
-#endif  // USE_CMAKE_LIBS
 #endif  // CUDNN
+#endif  // USE_CMAKE_LIBS
 
 #if defined(CUDNN_HALF) && !defined(CUDNN)
 #error "If you set CUDNN_HALF=1 then you must set CUDNN=1"
@@ -140,7 +139,7 @@ cudaStream_t get_cuda_stream() {
     return streamsArray[i];
 }
 
-
+/*
 static cudaStream_t streamsArray2[16];    // cudaStreamSynchronize( get_cuda_memcpy_stream() );
 static int streamInit2[16] = { 0 };
 
@@ -161,7 +160,7 @@ cudaStream_t get_cuda_memcpy_stream() {
     }
     return streamsArray2[i];
 }
-
+*/
 
 #ifdef CUDNN
 static int cudnnInit[16] = { 0 };
@@ -584,12 +583,8 @@ void cuda_free_host(float *x_cpu)
 void cuda_push_array(float *x_gpu, float *x, size_t n)
 {
     size_t size = sizeof(float)*n;
-
-#ifdef SEQUENTIAL
-    cudaError_t status = cudaMemcpy(x_gpu, x, size, cudaMemcpyHostToDevice);
-    //cudaError_t status = cudaMemcpyAsync(x_gpu, x, size, cudaMemcpyHostToDevice, get_cuda_stream());
-#endif
-
+    //cudaError_t status = cudaMemcpy(x_gpu, x, size, cudaMemcpyHostToDevice);
+    cudaError_t status = cudaMemcpyAsync(x_gpu, x, size, cudaMemcpyHostToDevice, get_cuda_stream());
     CHECK_CUDA(status);
 }
 
