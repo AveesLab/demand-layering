@@ -692,6 +692,14 @@ struct layer {
     void* poolingDesc;
 #endif  // CUDNN
 //#endif  // GPU
+
+#ifdef ONDEMAND_LOAD
+    FILE *weights_file;
+    long int weights_loc;
+#if defined SEQUENTIAL || defined SYNC
+    char *weights_file_name;
+#endif
+#endif
 };
 
 
@@ -834,6 +842,9 @@ typedef struct network {
     int optimized_memory;
     int dynamic_minibatch;
     size_t workspace_size_limit;
+
+    char *weights_file_name;
+
 } network;
 
 // network.h

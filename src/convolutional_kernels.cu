@@ -1238,7 +1238,9 @@ void pull_convolutional_layer(convolutional_layer l)
 
 void push_convolutional_layer(convolutional_layer l)
 {
+#ifndef ONDEMAND_LOAD
     cuda_push_array(l.weights_gpu, l.weights, l.nweights);
+#endif
 #ifdef CUDNN_HALF
     assert(l.nweights > 0);
     cuda_convert_f32_to_f16(l.weights_gpu, l.nweights, l.weights_gpu16);

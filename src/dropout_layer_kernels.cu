@@ -137,7 +137,7 @@ void forward_dropout_layer_gpu(dropout_layer l, network_state state)
         //l.probability = 1 / keep_prob
         //const int max_blocks_per_channel = 10;
         const float cur_prob = l.probability * multiplier;
-        const float cur_scale = 1.f / (1.f - cur_prob);
+        //const float cur_scale = 1.f / (1.f - cur_prob);
 
         int block_width = l.dropblock_size_abs *multiplier;
         int block_height = l.dropblock_size_abs *multiplier;
@@ -241,8 +241,8 @@ void backward_dropout_layer_gpu(dropout_layer l, network_state state)
         if (iteration_num < (state.net.max_batches*0.85))
             multiplier = (iteration_num / (float)(state.net.max_batches*0.85));
 
-        const float cur_prob = l.probability * multiplier;
-        const float cur_scale = 1.f / (1.f - cur_prob);
+        //const float cur_prob = l.probability * multiplier;
+        //const float cur_scale = 1.f / (1.f - cur_prob);
 
         int block_width = l.dropblock_size_abs * multiplier;
         int block_height = l.dropblock_size_abs * multiplier;
@@ -258,8 +258,8 @@ void backward_dropout_layer_gpu(dropout_layer l, network_state state)
         block_width = min_val_cmp(l.w, block_width);
         block_height = min_val_cmp(l.h, block_height);
 
-        const int block_size = min_val_cmp(block_width, block_height);
-        const float block_prob = cur_prob / (block_size*block_size);
+        //const int block_size = min_val_cmp(block_width, block_height);
+        //const float block_prob = cur_prob / (block_size*block_size);
 
         //fill_ongpu(l.outputs * l.batch, 1, state.delta, 1); // remove!!!
 

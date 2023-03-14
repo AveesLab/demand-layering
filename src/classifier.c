@@ -12,6 +12,7 @@
 #else
 #include <sys/time.h>
 #endif
+#include "j_header.h"
 
 static volatile int flag_exit;  // flag_exit
 
@@ -829,13 +830,16 @@ void predict_classifier(char *datacfg, char *cfgfile, char *weightfile, char *fi
 {
     network net = parse_network_cfg_custom(cfgfile, 1, 0);
     if(weightfile){
+		net.weights_file_name = weightfile;
         load_weights(&net, weightfile);
     }
     set_batch_network(&net, 1);
     srand(2222222);
 
+#ifndef ONDEMAND_LOAD
     fuse_conv_batchnorm(net);
     calculate_binary_weights(net);
+#endif
 
     list *options = read_data_cfg(datacfg);
 
@@ -897,6 +901,13 @@ void predict_classifier(char *datacfg, char *cfgfile, char *weightfile, char *fi
 
         if (filename) break;
     }
+
+#ifdef SYNC
+	free(CPU_BUF_A);
+	free(CPU_BUF_B);
+	cudaFree(GPU_BUF_A);
+	cudaFree(GPU_BUF_B);
+#endif
     free(indexes);
     free_network(net);
     free_list_contents_kvp(options);
@@ -1249,15 +1260,17 @@ void demo_classifier(char *datacfg, char *cfgfile, char *weightfile, int cam_ind
     printf("Classifier Demo\n");
     network net = parse_network_cfg_custom(cfgfile, 1, 0);
     if(weightfile){
+		net.weights_file_name = weightfile;
         load_weights(&net, weightfile);
     }
     net.benchmark_layers = benchmark_layers;
     set_batch_network(&net, 1);
     list *options = read_data_cfg(datacfg);
 
+#ifndef ONDEMAND_LOAD
     fuse_conv_batchnorm(net);
     calculate_binary_weights(net);
-
+#endif
     srand(2222222);
     cap_cv * cap;
 
@@ -1266,6 +1279,7 @@ void demo_classifier(char *datacfg, char *cfgfile, char *weightfile, int cam_ind
     }else{
         cap = get_capture_webcam(cam_index);
     }
+
     int count = 0;  // flag_exit
     int classes = option_find_int(options, "classes", 2);
     int top = option_find_int(options, "top", 1);
@@ -1289,8 +1303,10 @@ void demo_classifier(char *datacfg, char *cfgfile, char *weightfile, int cam_ind
         {  // flag_exit
 		struct timeval tval_before, tval_after, tval_result;
 		gettimeofday(&tval_before, NULL);
+		
+        //printf("count %d\n",count); // flag_exit
+		//if(count == 120) flag_exit = 1; // flag_exit
 
-		if(count == 120) flag_exit = 1; // flag_exit
 		//image in = get_image_from_stream(cap);
 		image in_s, in;
 		if (!benchmark) {
@@ -1308,16 +1324,15 @@ void demo_classifier(char *datacfg, char *cfgfile, char *weightfile, int cam_ind
 		float *predictions = network_predict(net, in_s.data);
 		double frame_time_ms = (get_time_point() - time)/1000;
 		frame_counter++;
-		printf("count %d\n",count); // flag_exit
 		if(net.hierarchy) hierarchy_predictions(predictions, net.outputs, net.hierarchy, 1);
 		top_predictions(net, top, indexes);
 
-	#ifndef _WIN32
-		//printf("\033[2J");
-		//printf("\033[1;1H");
-	#endif
+//	#ifndef _WIN32
+//		printf("\033[2J");
+//		printf("\033[1;1H");
+//	#endif
 
-
+		printf("\n");
 		if (!benchmark) {
 		    printf("\rFPS: %.2f  (use -benchmark command line flag for correct measurement)\n", fps);
 		    for (i = 0; i < top; ++i) {
@@ -1333,9 +1348,9 @@ void demo_classifier(char *datacfg, char *cfgfile, char *weightfile, int cam_ind
 		    if (c == 27 || c == 1048603) break;
 		}
 		else {
-		    printf("\n\rFPS: %.2f \t AVG_FPS = %.2f \n", fps, avg_fps);
+		    printf("\rFPS: %.2f \t AVG_FPS = %.2f ", fps, avg_fps);
 		}
-
+		printf("\n");
 		//gettimeofday(&tval_after, NULL);
 		//timersub(&tval_after, &tval_before, &tval_result);
 		//float curr = 1000000.f/((long int)tval_result.tv_usec);
