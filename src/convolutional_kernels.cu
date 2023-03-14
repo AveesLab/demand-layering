@@ -596,7 +596,29 @@ void forward_convolutional_layer_gpu(convolutional_layer l, network_state state)
 
             }
             //gemm_ongpu(0, 0, m, n, k, 1., a, k, b, n, 1., c + i*m*n, n);
+
+            //printf("\n--------------1---------------\n");
+            // Allocate memory for C on the GPU
+            //float *C_gpu;
+            //cudaMalloc((void **)&C_gpu, sizeof(float) * m * n);
+
+            // Call the gemm_ongpu function to perform the matrix multiplication
             gemm_ongpu(0, 0, m, n, k, 1, a, k, b, n, 1, c, n);
+            //printf("\n--------------2---------------\n");
+
+            // Copy the contents of C_gpu to C on the host
+            float *C_Copy = (float *)malloc(sizeof(float) * m * n);
+            float sum_of_output =0.0;
+            cudaMemcpy(C_Copy, c, sizeof(float) * m * n, cudaMemcpyDeviceToHost);// Loop over the elements of C and print their values
+            for (int i = 0; i < m; i++) {
+                for (int j = 0; j < n; j++) {
+                    sum_of_output+=C_Copy[i * n + j];
+                    //printf("%f ", C_Copy[i * n + j]);
+                }
+                //printf("\n");
+            }// Free memory on the host and the GPU
+            printf("%f\n", sum_of_output);
+            free(C_Copy);
         }
     }
 

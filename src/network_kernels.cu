@@ -203,6 +203,7 @@ void forward_network_gpu(network net, network_state state)
 #endif //NVTX
         
         // KERNEL EXECUTION : GPU buffer
+        printf("\n--------------layer %d---------------\n", i);
 		l->forward_gpu(*l, state);
 		cudaStreamSynchronize(get_cuda_stream());
 
