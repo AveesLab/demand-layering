@@ -41,6 +41,10 @@
 #include "gaussian_yolo_layer.h"
 #include "representation_layer.h"
 
+#include "http_stream.h"
+#include "j_header.h"
+#include "nvToolsExt.h"
+
 void empty_func(dropout_layer l, network_state state) {
     //l.output_gpu = state.input;
 }
@@ -207,6 +211,7 @@ convolutional_layer parse_convolutional(list *options, size_params params)
     batch=params.batch;
     if(!(h && w && c)) error("Layer before convolutional layer must output image.", DARKNET_LOC);
     int batch_normalize = option_find_int_quiet(options, "batch_normalize", 0);
+
     int cbn = option_find_int_quiet(options, "cbn", 0);
     if (cbn) batch_normalize = 2;
     int binary = option_find_int_quiet(options, "binary", 0);
@@ -991,8 +996,8 @@ layer parse_shortcut(list *options, size_params params, network net)
 
     for (i = 0; i < n; ++i) {
         int index = layers[i];
-        //assert(params.w == net.layers[index].out_w && params.h == net.layers[index].out_h);
 
+        //assert(params.w == net.layers[index].out_w && params.h == net.layers[index].out_h)
         if (params.w != net.layers[index].out_w || params.h != net.layers[index].out_h || params.c != net.layers[index].out_c)
             fprintf(stderr, " (%4d x%4d x%4d) + (%4d x%4d x%4d) \n",
                 params.w, params.h, params.c, net.layers[index].out_w, net.layers[index].out_h, params.net.layers[index].out_c);
@@ -1359,6 +1364,11 @@ network parse_network_cfg(char *filename)
 
 network parse_network_cfg_custom(char *filename, int batch, int time_steps)
 {
+#ifdef NVTX
+    nvtxRangeId_t nvtx_parse_network;
+    nvtxRangeId_t nvtx_parse_conv;
+    nvtx_parse_network = nvtxRangeStartA("Parse_netowrk"); 
+#endif
     list *sections = read_cfg(filename);
     node *n = sections->front;
     if(!n) error("Config file has no sections", DARKNET_LOC);
@@ -1442,7 +1452,9 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
         layer l = { (LAYER_TYPE)0 };
         LAYER_TYPE lt = string_to_layer_type(s->type);
         if(lt == CONVOLUTIONAL){
+            nvtx_parse_conv = nvtxRangeStartA("Parse_conv"); 
             l = parse_convolutional(options, params);
+            nvtxRangeEnd(nvtx_parse_conv);
         }else if(lt == LOCAL){
             l = parse_local(options, params);
         }else if(lt == ACTIVE){
@@ -1718,7 +1730,46 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
     }
 
     free_list(sections);
+#ifdef NVTX
+    nvtxRangeEnd(nvtx_parse_network); 
+#endif
 
+#ifdef ONDEMAND_LOAD
+
+#ifdef NVTX
+    nvtxRangeId_t nvtx_alloc_buffer;
+    nvtx_alloc_buffer = nvtxRangeStartA("Alloc_buffer"); 
+#endif
+
+#ifdef SEQUENTIAL
+    if(global_layer_weights == NULL)
+    {
+        printf("global_layer creation! %d\n",max_size_of_nweights+max_size_of_n);
+        int buf_size = max_size_of_nweights + max_size_of_n + 1024;
+        //CPU BUFFER
+#ifndef DIRECT_IO
+        hGlobal_layer_weights = (float *)malloc(buf_size*sizeof(float));
+#else
+//        posix_memalign(&hGlobal_layer_weights,512,(128 + buf_size)*sizeof(float));
+        cudaHostAlloc((float *)&hGlobal_layer_weights,(128 + buf_size)*sizeof(float), cudaHostAllocDefault);
+//		cudaMallocManaged(&hGlobal_layer_weights, (128 + buf_size)*sizeof(float), cudaMemAttachHost);
+#endif // DIRECT_IO
+        //GPU BUFFER
+        cudaMalloc(&global_layer_weights, (128 + buf_size)*sizeof(float));
+
+        cudaDeviceSynchronize();
+    }
+#endif //SEQUENTIAL
+
+#ifdef NVTX
+    nvtxRangeEnd(nvtx_alloc_buffer);
+#endif //NVTX
+#endif //ONDEMAND_LOAD
+
+#ifdef NVTX
+    nvtxRangeId_t nvtx_parse_network_etc;
+    nvtx_parse_network_etc = nvtxRangeStartA("Parse_network_etc"); 
+#endif
 #ifdef GPU
     if (net.optimized_memory && params.train)
     {
@@ -1808,6 +1859,9 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
         printf("\n Warning: width=%d and height=%d in cfg-file must be divisible by 32 for default networks Yolo v1/v2/v3!!! \n\n",
             net.w, net.h);
     }
+#ifdef NVTX
+    nvtxRangeEnd(nvtx_parse_network_etc);
+#endif
     return net;
 }
 
@@ -2108,8 +2162,11 @@ void transpose_matrix(float *a, int rows, int cols)
 
 void load_connected_weights(layer l, FILE *fp, int transpose)
 {
+#ifdef SEQUENTIAL
     fread(l.biases, sizeof(float), l.outputs, fp);
     fread(l.weights, sizeof(float), l.outputs*l.inputs, fp);
+#endif
+
     if(transpose){
         transpose_matrix(l.weights, l.inputs, l.outputs);
     }
@@ -2173,57 +2230,76 @@ void load_convolutional_weights_binary(layer l, FILE *fp)
 #endif
 }
 
-void load_convolutional_weights(layer l, FILE *fp)
+#if defined SEQUENTIAL
+void load_convolutional_weights(layer *l, FILE *fp)
 {
-    if(l.binary){
+    if(l->binary){
         //load_convolutional_weights_binary(l, fp);
         //return;
     }
-    int num = l.nweights;
+    int num = l->nweights;
     int read_bytes;
-    read_bytes = fread(l.biases, sizeof(float), l.n, fp);
-    if (read_bytes > 0 && read_bytes < l.n) printf("\n Warning: Unexpected end of wights-file! l.biases - l.index = %d \n", l.index);
+#ifdef ONDEMAND_LOAD
+    l->weights_loc = ftell(fp); // start pointer for reading weights
+//    read_bytes = fread(l->biases, sizeof(float), l->n, fp);
+    fseek(fp, l->n*sizeof(float), SEEK_CUR); // just move
+    if (l->batch_normalize && (!l->dontloadscales)){
+//        read_bytes = fread(l->scales, sizeof(float), l->n, fp);
+//        read_bytes = fread(l->rolling_mean, sizeof(float), l->n, fp);
+//        read_bytes = fread(l->rolling_variance, sizeof(float), l->n, fp);
+        fseek(fp, l->n*sizeof(float), SEEK_CUR); // just move
+        fseek(fp, l->n*sizeof(float), SEEK_CUR); // just move
+        fseek(fp, l->n*sizeof(float), SEEK_CUR); // just move
+    }
+//    l->weights_loc = ftell(fp); // start pointer for reading weights
+    fseek(fp, l->nweights*sizeof(float), SEEK_CUR); // just move
+//    printf("%d loc %d\n",l->index,l->weights_loc);
+#else
+    read_bytes = fread(l->biases, sizeof(float), l->n, fp);
+    if (read_bytes > 0 && read_bytes < l->n) printf("\n Warning: Unexpected end of wights-file! l.biases - l.index = %d \n", l->index);
     //fread(l.weights, sizeof(float), num, fp); // as in connected layer
-    if (l.batch_normalize && (!l.dontloadscales)){
-        read_bytes = fread(l.scales, sizeof(float), l.n, fp);
-        if (read_bytes > 0 && read_bytes < l.n) printf("\n Warning: Unexpected end of wights-file! l.scales - l.index = %d \n", l.index);
-        read_bytes = fread(l.rolling_mean, sizeof(float), l.n, fp);
-        if (read_bytes > 0 && read_bytes < l.n) printf("\n Warning: Unexpected end of wights-file! l.rolling_mean - l.index = %d \n", l.index);
-        read_bytes = fread(l.rolling_variance, sizeof(float), l.n, fp);
-        if (read_bytes > 0 && read_bytes < l.n) printf("\n Warning: Unexpected end of wights-file! l.rolling_variance - l.index = %d \n", l.index);
+    if (l->batch_normalize && (!l->dontloadscales)){
+        read_bytes = fread(l->scales, sizeof(float), l->n, fp);
+        if (read_bytes > 0 && read_bytes < l->n) printf("\n Warning: Unexpected end of wights-file! l.scales - l.index = %d \n", l->index);
+        read_bytes = fread(l->rolling_mean, sizeof(float), l->n, fp);
+        if (read_bytes > 0 && read_bytes < l->n) printf("\n Warning: Unexpected end of wights-file! l.rolling_mean - l.index = %d \n", l->index);
+        read_bytes = fread(l->rolling_variance, sizeof(float), l->n, fp);
+        if (read_bytes > 0 && read_bytes < l->n) printf("\n Warning: Unexpected end of wights-file! l.rolling_variance - l.index = %d \n", l->index);
         if(0){
             int i;
-            for(i = 0; i < l.n; ++i){
-                printf("%g, ", l.rolling_mean[i]);
+            for(i = 0; i < l->n; ++i){
+                printf("%g, ", l->rolling_mean[i]);
             }
             printf("\n");
-            for(i = 0; i < l.n; ++i){
-                printf("%g, ", l.rolling_variance[i]);
+            for(i = 0; i < l->n; ++i){
+                printf("%g, ", l->rolling_variance[i]);
             }
             printf("\n");
         }
         if(0){
-            fill_cpu(l.n, 0, l.rolling_mean, 1);
-            fill_cpu(l.n, 0, l.rolling_variance, 1);
+            fill_cpu(l->n, 0, l->rolling_mean, 1);
+            fill_cpu(l->n, 0, l->rolling_variance, 1);
         }
     }
-    read_bytes = fread(l.weights, sizeof(float), num, fp);
-    if (read_bytes > 0 && read_bytes < l.n) printf("\n Warning: Unexpected end of wights-file! l.weights - l.index = %d \n", l.index);
+    read_bytes = fread(l->weights, sizeof(float), num, fp);
+    if (read_bytes > 0 && read_bytes < l->n) printf("\n Warning: Unexpected end of wights-file! l.weights - l.index = %d \n", l->index);
     //if(l.adam){
     //    fread(l.m, sizeof(float), num, fp);
     //    fread(l.v, sizeof(float), num, fp);
     //}
     //if(l.c == 3) scal_cpu(num, 1./256, l.weights, 1);
-    if (l.flipped) {
-        transpose_matrix(l.weights, (l.c/l.groups)*l.size*l.size, l.n);
+    if (l->flipped) {
+        transpose_matrix(l->weights, (l->c/l->groups)*l->size*l->size, l->n);
     }
     //if (l.binary) binarize_weights(l.weights, l.n, (l.c/l.groups)*l.size*l.size, l.weights);
 #ifdef GPU
     if(gpu_index >= 0){
-        push_convolutional_layer(l);
+        push_convolutional_layer(*l);
     }
 #endif
+#endif
 }
+#endif
 
 void load_shortcut_weights(layer l, FILE *fp)
 {
@@ -2257,6 +2333,13 @@ void load_implicit_weights(layer l, FILE *fp)
 
 void load_weights_upto(network *net, char *filename, int cutoff)
 {
+
+#ifdef NVTX
+    nvtxRangeId_t nvtx_load_weights;
+    nvtxRangeId_t nvtx_load_conv;
+    nvtxRangeId_t nvtx_load_conn;
+    nvtx_load_weights = nvtxRangeStartA("Load_weights"); 
+#endif
 #ifdef GPU
     if(net->gpu_index >= 0){
         cuda_set_device(net->gpu_index);
@@ -2291,76 +2374,80 @@ void load_weights_upto(network *net, char *filename, int cutoff)
 
     int i;
     for(i = 0; i < net->n && i < cutoff; ++i){
-        layer l = net->layers[i];
-        if (l.dontload) continue;
-        if(l.type == CONVOLUTIONAL && l.share_layer == NULL){
+        layer *l = &net->layers[i];
+        if (l->dontload) continue;
+        if(l->type == CONVOLUTIONAL && l->share_layer == NULL){
+            nvtx_load_conv = nvtxRangeStartA("Load_conv"); 
             load_convolutional_weights(l, fp);
+            nvtxRangeEnd(nvtx_load_conv);
         }
-        if (l.type == SHORTCUT && l.nweights > 0) {
-            load_shortcut_weights(l, fp);
+        if (l->type == SHORTCUT && l->nweights > 0) {
+            load_shortcut_weights(*l, fp);
         }
-        if (l.type == IMPLICIT) {
-            load_implicit_weights(l, fp);
+        if (l->type == IMPLICIT) {
+            load_implicit_weights(*l, fp);
         }
-        if(l.type == CONNECTED){
-            load_connected_weights(l, fp, transpose);
+        if(l->type == CONNECTED){
+            nvtx_load_conn = nvtxRangeStartA("Load_connected"); 
+            load_connected_weights(*l, fp, transpose);
+            nvtxRangeEnd(nvtx_load_conn);
         }
-        if(l.type == BATCHNORM){
-            load_batchnorm_weights(l, fp);
+        if(l->type == BATCHNORM){
+            load_batchnorm_weights(*l, fp);
         }
-        if(l.type == CRNN){
-            load_convolutional_weights(*(l.input_layer), fp);
-            load_convolutional_weights(*(l.self_layer), fp);
-            load_convolutional_weights(*(l.output_layer), fp);
+        if(l->type == CRNN){
+            load_convolutional_weights((l->input_layer), fp);
+            load_convolutional_weights((l->self_layer), fp);
+            load_convolutional_weights((l->output_layer), fp);
         }
-        if(l.type == RNN){
-            load_connected_weights(*(l.input_layer), fp, transpose);
-            load_connected_weights(*(l.self_layer), fp, transpose);
-            load_connected_weights(*(l.output_layer), fp, transpose);
+        if(l->type == RNN){
+            load_connected_weights(*(l->input_layer), fp, transpose);
+            load_connected_weights(*(l->self_layer), fp, transpose);
+            load_connected_weights(*(l->output_layer), fp, transpose);
         }
-        if(l.type == GRU){
-            load_connected_weights(*(l.input_z_layer), fp, transpose);
-            load_connected_weights(*(l.input_r_layer), fp, transpose);
-            load_connected_weights(*(l.input_h_layer), fp, transpose);
-            load_connected_weights(*(l.state_z_layer), fp, transpose);
-            load_connected_weights(*(l.state_r_layer), fp, transpose);
-            load_connected_weights(*(l.state_h_layer), fp, transpose);
+        if(l->type == GRU){
+            load_connected_weights(*(l->input_z_layer), fp, transpose);
+            load_connected_weights(*(l->input_r_layer), fp, transpose);
+            load_connected_weights(*(l->input_h_layer), fp, transpose);
+            load_connected_weights(*(l->state_z_layer), fp, transpose);
+            load_connected_weights(*(l->state_r_layer), fp, transpose);
+            load_connected_weights(*(l->state_h_layer), fp, transpose);
         }
-        if(l.type == LSTM){
-            load_connected_weights(*(l.wf), fp, transpose);
-            load_connected_weights(*(l.wi), fp, transpose);
-            load_connected_weights(*(l.wg), fp, transpose);
-            load_connected_weights(*(l.wo), fp, transpose);
-            load_connected_weights(*(l.uf), fp, transpose);
-            load_connected_weights(*(l.ui), fp, transpose);
-            load_connected_weights(*(l.ug), fp, transpose);
-            load_connected_weights(*(l.uo), fp, transpose);
+        if(l->type == LSTM){
+            load_connected_weights(*(l->wf), fp, transpose);
+            load_connected_weights(*(l->wi), fp, transpose);
+            load_connected_weights(*(l->wg), fp, transpose);
+            load_connected_weights(*(l->wo), fp, transpose);
+            load_connected_weights(*(l->uf), fp, transpose);
+            load_connected_weights(*(l->ui), fp, transpose);
+            load_connected_weights(*(l->ug), fp, transpose);
+            load_connected_weights(*(l->uo), fp, transpose);
         }
-        if (l.type == CONV_LSTM) {
-            if (l.peephole) {
-                load_convolutional_weights(*(l.vf), fp);
-                load_convolutional_weights(*(l.vi), fp);
-                load_convolutional_weights(*(l.vo), fp);
+        if (l->type == CONV_LSTM) {
+            if (l->peephole) {
+                load_convolutional_weights((l->vf), fp);
+                load_convolutional_weights((l->vi), fp);
+                load_convolutional_weights((l->vo), fp);
             }
-            load_convolutional_weights(*(l.wf), fp);
-            if (!l.bottleneck) {
-                load_convolutional_weights(*(l.wi), fp);
-                load_convolutional_weights(*(l.wg), fp);
-                load_convolutional_weights(*(l.wo), fp);
+            load_convolutional_weights((l->wf), fp);
+            if (!l->bottleneck) {
+                load_convolutional_weights((l->wi), fp);
+                load_convolutional_weights((l->wg), fp);
+                load_convolutional_weights((l->wo), fp);
             }
-            load_convolutional_weights(*(l.uf), fp);
-            load_convolutional_weights(*(l.ui), fp);
-            load_convolutional_weights(*(l.ug), fp);
-            load_convolutional_weights(*(l.uo), fp);
+            load_convolutional_weights((l->uf), fp);
+            load_convolutional_weights((l->ui), fp);
+            load_convolutional_weights((l->ug), fp);
+            load_convolutional_weights((l->uo), fp);
         }
-        if(l.type == LOCAL){
-            int locations = l.out_w*l.out_h;
-            int size = l.size*l.size*l.c*l.n*locations;
-            fread(l.biases, sizeof(float), l.outputs, fp);
-            fread(l.weights, sizeof(float), size, fp);
+        if(l->type == LOCAL){
+            int locations = l->out_w*l->out_h;
+            int size = l->size*l->size*l->c*l->n*locations;
+            fread(l->biases, sizeof(float), l->outputs, fp);
+            fread(l->weights, sizeof(float), size, fp);
 #ifdef GPU
             if(gpu_index >= 0){
-                push_local_layer(l);
+                push_local_layer(*l);
             }
 #endif
         }
@@ -2368,6 +2455,9 @@ void load_weights_upto(network *net, char *filename, int cutoff)
     }
     fprintf(stderr, "Done! Loaded %d layers from weights-file \n", i);
     fclose(fp);
+#ifdef NVTX
+    nvtxRangeEnd(nvtx_load_weights); 
+#endif
 }
 
 void load_weights(network *net, char *filename)

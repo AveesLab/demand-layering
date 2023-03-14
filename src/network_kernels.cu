@@ -37,6 +37,19 @@
 //#endif
 
 #include "http_stream.h"
+#include "j_header.h"
+#include "nvToolsExt.h"
+
+#include <cuda_profiler_api.h>
+#include <unistd.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <locale.h>
+#include <aio.h>
+
+// Determine the number of values to discard
+int check_value = 50;
 
 float * get_network_output_gpu_layer(network net, int i);
 float * get_network_delta_gpu_layer(network net, int i);
@@ -57,8 +70,10 @@ int time_comparator(const void *pa, const void *pb)
     return 0;
 }
 
+#ifdef SEQUENTIAL
 void forward_network_gpu(network net, network_state state)
 {
+//    cudaProfilerStart();
     static time_benchmark_layers *avg_time_per_layer = NULL;
     static time_benchmark_layers *sorted_avg_time_per_layer = NULL;
     double start_time, end_time;
@@ -70,25 +85,132 @@ void forward_network_gpu(network net, network_state state)
         cudaDeviceSynchronize();
     }
 
-    blas_handle();
-
-    float cur_time = get_time_point();
-    static int infer_count=0;
-    //printf("\n");
     state.workspace = net.workspace;
     int i;
+    
+#ifdef GPU
+    blas_handle();
+#endif
+#ifdef NVTX
+    nvtxRangeId_t nvtx_forward_network;
+    nvtx_forward_network = nvtxRangeStartA("Forward_network_gpu");
+#endif
+#ifdef ONDEMAND_LOAD
+    static int infer_count = 0;
+    double cur_time = get_time_point();
+    char *weights = net.weights_file_name;
+    //int sum_read_bytes = 0;
+    int sum_weights_bytes = 20;
+    int read_size = 0;
+    //int read_offset = 0;
+#ifndef DIRECT_IO
+    FILE *fp = fopen(weights, "rb");
+    if(!fp) fprintf(stderr,"Can't open!!\n");
+//    fseek(fp, 20, SEEK_SET);
+#else
+    sum_weights_bytes = 0;
+    int flag = O_RDWR | O_DIRECT;
+    mode_t mode = 0644;
+    int fp = open(weights, flag, mode);
+    if(fp==-1) {
+        fprintf(stderr,"Can't open!!\n");
+        close(fp);
+    }
+#endif
+#endif
+
+    int l_offset =0;
+
     for(i = 0; i < net.n; ++i){
         state.index = i;
-        layer l = net.layers[i];
-        if(l.delta_gpu && state.train){
-            fill_ongpu(l.outputs * l.batch, 0, l.delta_gpu, 1);
+        layer *l = &net.layers[i];
+        if(l->delta_gpu && state.train){
+            fill_ongpu(l->outputs * l->batch, 0, l->delta_gpu, 1);
         }
 
         if (net.benchmark_layers) {
             start_time = get_time_point();
         }
 
-        l.forward_gpu(l, state);
+#ifdef NVTX
+        char str_nvtx[100];
+        nvtxRangeId_t nvtx_layer;
+        if(l->type == CONVOLUTIONAL){
+            sprintf(str_nvtx, "CONV %d", i);
+        }
+        else if(l-> type == ROUTE){
+            sprintf(str_nvtx, "ROUTE %d", i);
+        }
+        else if(l-> type == SHORTCUT){
+            sprintf(str_nvtx, "SHORTCUT %d", i);
+        }
+        else if(l-> type == MAXPOOL){
+            sprintf(str_nvtx, "MAXPOOL %d", i);
+        }
+        else if(l-> type == YOLO){
+            sprintf(str_nvtx, "YOLO %d", i);
+        }
+        nvtx_layer = nvtxRangeStartA(str_nvtx);
+#endif //NVTX
+#ifdef ONDEMAND_LOAD
+
+//        // |              |buffer_offset-->|parameter_size-->|extra-->|
+//        // |read_offset-->|---------------read_size------------------>|
+
+        //new weights - only biases+weights
+        if(l->type == CONVOLUTIONAL)
+        {
+            l->batch_normalize = 0;
+            int read_bytes = 0;
+            //size_t nsize = l->n + l->nweights;
+
+            size_t psize = sizeof(float)*(l->n + l->nweights);
+            int pshare = psize/512;
+            if(psize%512 != 0){
+                read_size = (pshare+1)*512;
+            }
+            else if(psize%512 == 0){
+                read_size = psize;
+            }
+            int buffer_offset = 0;
+            if(sum_weights_bytes%512 != 0) 
+                buffer_offset = sum_weights_bytes - lseek(fp,0,SEEK_CUR); // DIO_READ
+            while(read_size < (buffer_offset + psize)) read_size += 512;
+
+            // READ : CPU buffer
+			read_bytes = read(fp, hGlobal_layer_weights, read_size); // READ function
+
+            sum_weights_bytes += psize;
+            if(sum_weights_bytes%512 != 0){
+                lseek(fp, -512, SEEK_CUR);
+            }
+
+            // COPY : GPU buffer
+			cuda_push_array(global_layer_weights, hGlobal_layer_weights, read_size/sizeof(float));
+			cudaStreamSynchronize(get_cuda_stream());
+
+            //Distribute buffer pointer
+            l_offset = buffer_offset/sizeof(float);
+            l->biases_gpu = global_layer_weights + l_offset;
+            l->weights_gpu = global_layer_weights + l->n + l_offset;
+
+        }
+#endif //ONDEMAND_LOAD
+
+#ifdef NVTX
+        nvtxRangeId_t nvtx_forward_gpu;
+        nvtx_forward_gpu = nvtxRangeStartW(L"l.forward_gpu");
+#endif //NVTX
+        
+        // KERNEL EXECUTION : GPU buffer
+		l->forward_gpu(*l, state);
+		cudaStreamSynchronize(get_cuda_stream());
+
+
+#ifdef NVTX
+        nvtxRangeEnd(nvtx_forward_gpu);
+        nvtxRangeEnd(nvtx_layer);
+#endif //NVTX
 
         if (net.benchmark_layers) {
             CHECK_CUDA(cudaDeviceSynchronize());
@@ -97,48 +219,45 @@ void forward_network_gpu(network net, network_state state)
             const double alpha = 0.9;
             if (avg_time_per_layer[i].time == 0) {
                 avg_time_per_layer[i].layer_id = i;
-                avg_time_per_layer[i].layer_type = l.type;
+                avg_time_per_layer[i].layer_type = l->type;
                 avg_time_per_layer[i].time = took_time;
             }
             else avg_time_per_layer[i].time = avg_time_per_layer[i].time * alpha + took_time * (1 - alpha);
 
             sorted_avg_time_per_layer[i] = avg_time_per_layer[i];
-            printf("\n fw-layer %d - type: %d - %lf ms - avg_time %lf ms \n", i, l.type, took_time, avg_time_per_layer[i].time);
+            printf("\n fw-layer %d - type: %d - %lf ms - avg_time %lf ms \n", i, l->type, took_time, avg_time_per_layer[i].time);
         }
 
         if(net.wait_stream)
             cudaStreamSynchronize(get_cuda_stream());
-        state.input = l.output_gpu;
+        state.input = l->output_gpu;
         //cudaDeviceSynchronize();
-
-        /*
-        cuda_pull_array(l.output_gpu, l.output, l.outputs);
-        cudaStreamSynchronize(get_cuda_stream());
-        float avg_val = 0;
-        int k;
-        for (k = 0; k < l.outputs; ++k) avg_val += l.output[k];
-        printf(" i: %d - avg_val = %f \n", i, avg_val / l.outputs);
-        */
-
-/*
-        cuda_pull_array(l.output_gpu, l.output, l.batch*l.outputs);
-        if (l.out_w >= 0 && l.out_h >= 1 && l.c >= 3) {
-            int j;
-            for (j = 0; j < l.out_c; ++j) {
-                image img = make_image(l.out_w, l.out_h, 3);
-                memcpy(img.data, l.output + l.out_w*l.out_h*j, l.out_w*l.out_h * 1 * sizeof(float));
-                memcpy(img.data + l.out_w*l.out_h * 1, l.output + l.out_w*l.out_h*j, l.out_w*l.out_h * 1 * sizeof(float));
-                memcpy(img.data + l.out_w*l.out_h * 2, l.output + l.out_w*l.out_h*j, l.out_w*l.out_h * 1 * sizeof(float));
-                char buff[256];
-                sprintf(buff, "layer-%d slice-%d", i, j);
-                show_image(img, buff);
-                save_image(img, buff);
-            }
-            cvWaitKey(0); // wait press-key in console
-            cvDestroyAllWindows();
-        }
-*/
     }
+#ifdef ONDEMAND_LOAD
+#ifndef DIRECT_IO
+    fclose(fp);
+#else
+    close(fp);
+#endif
+    cudaDeviceSynchronize();
+
+    static double sum_infer = 0.;
+    static double infer_time = 0.;
+    infer_time = (get_time_point() - cur_time)/1000.0;
+
+    printf("\ninfer_count: %d\n",infer_count); 
+    printf("inference time: %.1lf ms\n",infer_time); 
+    if(infer_count > check_value){
+        sum_infer += infer_time;
+    }
+    if(infer_count == 100+check_value){ 
+        printf("---> 100 average inference time: %.1lf ms\n",sum_infer/100.0);
+        sum_infer = 0.;
+        infer_count = 0;
+    }
+    infer_count ++;
+
+#endif
 
     if (net.benchmark_layers) {
         printf("\n\nSorted by time (forward):\n");
@@ -149,34 +268,15 @@ void forward_network_gpu(network net, network_state state)
         }
     }
 
+#ifdef NVTX
+    nvtxRangeEnd(nvtx_forward_network);
+#endif
     //cudaStreamSynchronize(get_cuda_stream());   // sync CUDA-functions
-    cudaDeviceSynchronize();
-    static double sum_time = 0.;
-    static double infer_time = 0.;
-    infer_time = (get_time_point() - cur_time) / 1000.0;
-
-    static double min_time = 10000.;
-    static double max_time = 0.;
-//    printf("fread time: %lf\n",fread_time/1000);
-//    printf("copy time: %f\n",copy_time/1000);
-//    printf("kernel time: %lf\n",kernel_time/1000);
-//    printf("\ninfer_count: %d\n",infer_count);
-    printf("infer_time : %lf\n",infer_time);
-    if (infer_count > 20){
-        sum_time += infer_time;
-        if (min_time > infer_time) min_time = infer_time;
-        if (max_time < infer_time) max_time = infer_time;
-    }
-    if (infer_count == 120){
-        printf("---> 100 iter avg inference time, min time, max time: %.3lf,  %.3lf, %.3lf\n", sum_time / 100.0, min_time, max_time);
-        sum_time = 0.;
-        min_time = 10000.;
-        max_time = 0.;
-        infer_count = 0;
-    }
-
-    infer_count++;
+    //cudaDeviceSynchronize();
+//    cudaProfilerStop();
 }
+#endif
+
 
 void backward_network_gpu(network net, network_state state)
 {
@@ -405,7 +505,7 @@ float train_network_datum_gpu(network net, float *x, float *y)
         float scale = (get_current_iteration(net) / ((float)net.max_batches));
         //scale = sin(scale * M_PI);
         net.learning_rate = net.adversarial_lr * scale;
-        layer l = net.layers[net.n - 1];
+        //layer l = net.layers[net.n - 1];
         int y_size = get_network_output_size(net)*net.batch;
         if (net.layers[net.n - 1].truths) y_size = net.layers[net.n - 1].truths*net.batch;
         float *truth_cpu = (float *)xcalloc(y_size, sizeof(float));

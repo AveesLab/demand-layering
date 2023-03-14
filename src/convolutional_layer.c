@@ -13,6 +13,8 @@
 #include "xnor_layer.h"
 #endif
 
+#include "j_header.h"
+
 #ifdef __cplusplus
 #define PUT_IN_REGISTER
 #else
@@ -523,7 +525,6 @@ convolutional_layer make_convolutional_layer(int batch, int steps, int h, int w,
         stride_x = stride_y = l.stride = l.stride_x = l.stride_y = 1; // use stride=1 in host-layer
     }
 
-    l.wait_stream_id = -1;
     l.deform = deform;
     l.assisted_excitation = assisted_excitation;
     l.share_layer = share_layer;
@@ -561,7 +562,11 @@ convolutional_layer make_convolutional_layer(int batch, int steps, int h, int w,
         l.bias_updates = l.share_layer->bias_updates;
     }
     else {
+        if(max_size_of_nweights < l.nweights) max_size_of_nweights = l.nweights;//
+        if(max_size_of_n < l.n) max_size_of_n = l.n;//
+#ifndef ONDEMAND_LOAD
         l.weights = (float*)xcalloc(l.nweights, sizeof(float));
+#endif //ONDEMAND_LOAD
         l.biases = (float*)xcalloc(n, sizeof(float));
 
         if (train) {
@@ -573,6 +578,7 @@ convolutional_layer make_convolutional_layer(int batch, int steps, int h, int w,
         }
     }
 
+#ifndef ONDEMAND_LOAD
     // float scale = 1./sqrt(size*size*c);
     float scale = sqrt(2./(size*size*c/groups));
     if (l.activation == NORM_CHAN || l.activation == NORM_CHAN_SOFTMAX || l.activation == NORM_CHAN_SOFTMAX_MAXVAL) {
@@ -581,6 +587,7 @@ convolutional_layer make_convolutional_layer(int batch, int steps, int h, int w,
     else {
         for (i = 0; i < l.nweights; ++i) l.weights[i] = scale*rand_uniform(-1, 1);   // rand_normal();
     }
+#endif //ONDEMAND_LOAD
     int out_h = convolutional_out_height(l);
     int out_w = convolutional_out_width(l);
     l.out_h = out_h;
@@ -708,7 +715,9 @@ convolutional_layer make_convolutional_layer(int batch, int steps, int h, int w,
             l.bias_updates_gpu = l.share_layer->bias_updates_gpu;
         }
         else {
+#ifndef ONDEMAND_LOAD
             l.weights_gpu = cuda_make_array(l.weights, l.nweights);
+#endif //ONDEMAND_LOAD
             if (train) l.weight_updates_gpu = cuda_make_array(l.weight_updates, l.nweights);
 #ifdef CUDNN_HALF
             l.weights_gpu16 = cuda_make_array(NULL, l.nweights / 2 + 1);

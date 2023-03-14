@@ -18,6 +18,7 @@
 #ifdef OPENCV
 
 #include "http_stream.h"
+#include "j_header.h"
 
 static char **demo_names;
 static image **demo_alphabet;
@@ -160,14 +161,25 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
     printf("Demo\n");
     net = parse_network_cfg_custom(cfgfile, 1, 1);    // set batch=1
     if(weightfile){
+        net.weights_file_name = weightfile;
+
+#ifndef TWO_STAGE
         load_weights(&net, weightfile);
+#else
+#ifndef ONDEMAND_LOAD
+        load_weights(&net, weightfile);
+#endif
+#endif //Not TWO_STAGE
+
     }
     if (net.letter_box) letter_box = 1;
     net.benchmark_layers = benchmark_layers;
+#ifndef ONDEMAND_LOAD
     fuse_conv_batchnorm(net);
     calculate_binary_weights(net);
+#endif //ONDEMAND_LOAD
     srand(2222222);
-
+    
     if(filename){
         printf("video file: %s\n", filename);
         cap = get_capture_video_stream(filename);
@@ -191,7 +203,6 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
     cv_images = (mat_cv**)xcalloc(avg_frames, sizeof(mat_cv));
 
     int i;
-
     for (i = 0; i < net.n; ++i) {
         layer lc = net.layers[i];
         if (lc.type == YOLO) {
@@ -212,7 +223,6 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
     custom_thread_t detect_thread = NULL;
     if (custom_create_thread(&fetch_thread, 0, fetch_in_thread, 0)) error("Thread creation failed", DARKNET_LOC);
     if (custom_create_thread(&detect_thread, 0, detect_in_thread, 0)) error("Thread creation failed", DARKNET_LOC);
-
 
     fetch_in_thread_sync(0); //fetch_in_thread(0);
     det_img = in_img;
@@ -237,7 +247,7 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
 
     if(!prefix && !dont_show){
         int full_screen = 0;
-        create_window_cv("Demo", full_screen, 1352, 1013);
+        create_window_cv("Demo", full_screen, 640, 480);
     }
 
 
@@ -266,16 +276,16 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
     int frame_counter = 0;
     int global_frame_counter = 0;
 
+
     while(1){
         ++count;
         {
             const float nms = .45;    // 0.4F
             int local_nboxes = nboxes;
             detection *local_dets = dets;
-
             this_thread_yield();
-            printf("count %d\n",count);
-            if(count == 120) flag_exit = 1;
+            //printf("count %d\n",count);
+            //if(count == 1000) flag_exit = 1;
 
             if (!benchmark) custom_atomic_store_int(&run_fetch_in_thread, 1); // if (custom_create_thread(&fetch_thread, 0, fetch_in_thread, 0)) error("Thread creation failed", DARKNET_LOC);
             custom_atomic_store_int(&run_detect_in_thread, 1); // if (custom_create_thread(&detect_thread, 0, detect_in_thread, 0)) error("Thread creation failed", DARKNET_LOC);
@@ -313,7 +323,7 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
             if (!benchmark && !dontdraw_bbox) draw_detections_cv_v3(show_img, local_dets, local_nboxes, demo_thresh, demo_names, demo_alphabet, demo_classes, demo_ext_output);
             free_detections(local_dets, local_nboxes);
 
-            printf("\nFPS:%.1f \t AVG_FPS:%.1f\n", fps, avg_fps); 
+            printf("\nFPS:%.1f \t AVG_FPS:%.1f\n", fps, avg_fps);
 
             if(!prefix){
                 if (!dont_show) {
@@ -344,6 +354,7 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
                 int jpeg_quality = 40;    // 1 - 100
                 send_mjpeg(show_img, port, timeout, jpeg_quality);
             }
+
             // save video file
             if (output_video_writer && show_img) {
                 write_frame_cv(output_video_writer, show_img);
@@ -379,6 +390,7 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
         --delay;
         if(delay < 0){
             delay = frame_skip;
+
             //double after = get_wall_time();
             //float curr = 1./(after - before);
             double after = get_time_point();    // more accurate time measurements
@@ -396,14 +408,13 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
                 start_time = get_time_point();
             }
         }
-
     }
-
     printf("input video stream closed. \n");
     if (output_video_writer) {
         release_video_writer(&output_video_writer);
         printf("output_video_writer closed. \n");
     }
+
     this_thread_sleep_for(thread_wait_ms);
 
     custom_join(detect_thread, 0);
