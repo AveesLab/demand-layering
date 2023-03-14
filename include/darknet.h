@@ -696,7 +696,7 @@ struct layer {
 #ifdef ONDEMAND_LOAD
     FILE *weights_file;
     long int weights_loc;
-#if defined SEQUENTIAL || defined SYNC
+#if defined SEQUENTIAL
     char *weights_file_name;
 #endif
 #endif

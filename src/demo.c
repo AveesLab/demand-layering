@@ -20,13 +20,6 @@
 #include "http_stream.h"
 #include "j_header.h"
 
-#if defined SYNC || defined ASYNC || defined TWO_STAGE
-int mem_arr[3][2000]={0,};
-int base_mTOT=0;
-int base_mCPU=0;
-int base_mGPU=0;
-#endif
-
 static char **demo_names;
 static image **demo_alphabet;
 static int demo_classes;
@@ -147,105 +140,6 @@ double get_wall_time()
     }
     return (double)walltime.tv_sec + (double)walltime.tv_usec * .000001;
 }
-
-#if defined SYNC || defined ASYNC || defined TWO_STAGE
-void printMEM()
-{
-    char cmd[1024];
-    int nMemTot =0;
-    int nMemAva =0;
-    int nMapMem =0;
-    int mCPU, mGPU, mTOT;
-
-    sprintf(cmd, "/proc/meminfo");
-    FILE *fp = fopen(cmd, "r");
-    if(fp == NULL) return;
-    while(fgets(cmd, 1024, fp) != NULL) {
-        if(strstr(cmd, "MemTotal"))  {
-            char t[32];
-            char size[32];
-            sscanf(cmd, "%s%s", t, size);
-            nMemTot = atoi(size);
-        }
-        else if(strstr(cmd, "MemAvailable")) {
-            char t[32];
-            char size[32];
-            sscanf(cmd, "%s%s", t, size);
-            nMemAva = atoi(size);
-        }
-        else if(strstr(cmd, "NvMapMemUsed")) {
-            char t[32];
-            char size[32];
-            sscanf(cmd, "%s%s", t, size);
-            nMapMem = atoi(size);
-            break;
-        }
-    }
-    fclose(fp);
-
-    mTOT = (nMemTot - nMemAva);
-    mGPU = nMapMem;
-    mCPU = mTOT - mGPU;
-
-    base_mTOT = mTOT/1024;
-    base_mCPU = mCPU/1024;
-    base_mGPU = mGPU/1024;
-
-    printf("mTOT: %dkB (=%dMB)\n",mTOT,mTOT/1024);
-    printf("mCPU: %dkB (=%dMB)\n",mCPU,mCPU/1024);
-    printf("mGPU: %dkB (=%dMB)\n",mGPU,mGPU/1024);
-
-}
-
-void mem()
-{
-    char cmd[1024];
-    int nMemTot =0;
-    int nMemAva =0;
-    int nMapMem =0;
-    int mCPU, mGPU, mTOT;
-    static int count =0;
-
-    sprintf(cmd, "/proc/meminfo");
-    FILE *fp = fopen(cmd, "r");
-    if(fp == NULL) return;
-    while(fgets(cmd, 1024, fp) != NULL) {
-        if(strstr(cmd, "MemTotal"))  {
-            char t[32];
-            char size[32];
-            sscanf(cmd, "%s%s", t, size);
-            nMemTot = atoi(size);
-        }
-        else if(strstr(cmd, "MemAvailable")) {
-            char t[32];
-            char size[32];
-            sscanf(cmd, "%s%s", t, size);
-            nMemAva = atoi(size);
-        }
-        else if(strstr(cmd, "NvMapMemUsed")) {
-            char t[32];
-            char size[32];
-            sscanf(cmd, "%s%s", t, size);
-            nMapMem = atoi(size);
-            break;
-        }
-    }
-    fclose(fp);
-
-    mTOT = (nMemTot - nMemAva);
-    mGPU = nMapMem;
-    mCPU = mTOT - mGPU;
-
-    mem_arr[0][count]=mTOT/1024;
-    mem_arr[1][count]=mCPU/1024;
-    mem_arr[2][count]=mGPU/1024;
-    count++;
-    printf("mTOT: %dkB (=%dMB)\n",mTOT,mTOT/1024);
-    printf("mCPU: %dkB (=%dMB)\n",mCPU,mCPU/1024);
-    printf("mGPU: %dkB (=%dMB)\n",mGPU,mGPU/1024);
-
-}
-#endif
 
 void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int cam_index, const char *filename, char **names, int classes, int avgframes,
     int frame_skip, char *prefix, char *out_filename, int mjpeg_port, int dontdraw_bbox, int json_port, int dont_show, int ext_output, int letter_box_in, int time_limit_sec, char *http_post_host,
@@ -529,15 +423,6 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
     // free memory
     free_image(in_s);
     free_detections(dets, nboxes);
-
-#ifdef ASYNC
-	//free buffer & cudaEvent
-	free(hGlobal_layer_weights);
-	cudaFree(global_layer_weights);
-	cudaEventDestroy(copyEvent);
-	for(int k = 0; k<net.n; k++) cudaEventDestroy(kernel[k]);
-#endif
-
 
     demo_index = (avg_frames + demo_index - 1) % avg_frames;
     for (j = 0; j < avg_frames; ++j) {

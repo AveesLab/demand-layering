@@ -45,10 +45,6 @@
 #include "j_header.h"
 #include "nvToolsExt.h"
 
-#ifdef ASYNC
-#include "circular_buffer.h"
-#endif
-
 void empty_func(dropout_layer l, network_state state) {
     //l.output_gpu = state.input;
 }
@@ -215,12 +211,6 @@ convolutional_layer parse_convolutional(list *options, size_params params)
     batch=params.batch;
     if(!(h && w && c)) error("Layer before convolutional layer must output image.", DARKNET_LOC);
     int batch_normalize = option_find_int_quiet(options, "batch_normalize", 0);
-
-#ifdef TWO_STAGE
-#ifdef ONDEMAND_LOAD
-	batch_normalize = 0;
-#endif
-#endif
 
     int cbn = option_find_int_quiet(options, "cbn", 0);
     if (cbn) batch_normalize = 2;
@@ -1771,125 +1761,6 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
     }
 #endif //SEQUENTIAL
 
-#ifdef SYNC
-    if(GPU_BUF_A == NULL)
-    {
-        printf("global_layer creation! %d(%d + %d)\n",max_size_of_nweights+max_size_of_n,max_size_of_n, max_size_of_nweights);
-        buf_size = max_size_of_nweights+max_size_of_n + 2048;
-//        //CPU Pageable buffer
-//		posix_memalign(&GPU_BUF_A,512,(buf_size)*sizeof(float));
-//		posix_memalign(&GPU_BUF_B,512,(buf_size)*sizeof(float));
-
-//        //CPU Pinned buffer
-        cudaHostAlloc((float *)&CPU_BUF_A, (buf_size)*sizeof(float),cudaHostAllocDefault);
-        cudaHostAlloc((float *)&CPU_BUF_B, (buf_size)*sizeof(float),cudaHostAllocDefault);
-
-        //CPU Unified memory buffer
-//		cudaMallocManaged(&GPU_BUF_A, (buf_size)*sizeof(float), cudaMemAttachHost);
-//		cudaMallocManaged(&GPU_BUF_B, (buf_size)*sizeof(float), cudaMemAttachHost);
-		
-        //GPU BUFFER
-        cudaMalloc(&GPU_BUF_A, (buf_size)*sizeof(float));
-        cudaMalloc(&GPU_BUF_B, (buf_size)*sizeof(float));
-
-		//COPY & KERNEL EVENT CREATE
-		cudaEventCreate(&copyEvent_A);
-		cudaEventCreate(&copyEvent_B);
-		cudaEventCreate(&kernelEvent);
-
-		//AIO
-		bzero((float *)&c_aio_A, sizeof(struct aiocb));
-		bzero((float *)&c_aio_B, sizeof(struct aiocb));
-		c_aio_A.aio_buf = CPU_BUF_A;
-		c_aio_B.aio_buf = CPU_BUF_B;
-		if(!c_aio_A.aio_buf) perror("buffer A alloc error!!!\n");
-		if(!c_aio_B.aio_buf) perror("buffer B alloc error!!!\n");
-
-        cudaDeviceSynchronize();
-    }
-#endif //SYNC
-
-#ifdef ASYNC
-    if(global_layer_weights == NULL)
-    {
-        
-        //BUFFER SIZE
-        size_t buf_size = (max_size_of_n + max_size_of_nweights) * 20;
-        printf("global_layer creation! %d\n", buf_size*4);
-
-        //CPU BUFFER
-		hGlobal_layer_weights = circular_buf_init(buf_size , net.n);
-//		posix_memalign(&hGlobal_layer_weights->buf,512,(buf_size)*sizeof(float));
-		cudaHostAlloc(&hGlobal_layer_weights->buf, buf_size*sizeof(float),cudaHostAllocDefault);
-//		cudaMallocManaged(&hGlobal_layer_weights->buf,(buf_size)*sizeof(float),cudaMemAttachHost);
-
-        //GPU BUFFER
-		global_layer_weights = circular_buf_init(buf_size, net.n);
-        cudaMalloc(&global_layer_weights->buf, buf_size*sizeof(float));
-
-		//COPY & KERNEL EVENT CREATE
-//		cudaEventCreate(&copyEvent);
-		copyEvent = (cudaEvent_t *)malloc(net.n*sizeof(cudaEvent_t));
-		for(int i = 0; i < net.n; i++) cudaEventCreate(&copyEvent[i]);
-		kernel = (cudaEvent_t *)malloc(net.n*sizeof(cudaEvent_t));
-		for(int i = 0; i < net.n; i++) cudaEventCreate(&kernel[i]);
-
-		//INIT AIO
-		c_aio = (struct aiocb *)malloc(net.n*sizeof(struct aiocb));
-		for(int i = 0; i < net.n; i++){
-			bzero((float *)&c_aio[i], sizeof(struct aiocb));
-			c_aio[i].aio_buf = hGlobal_layer_weights->buf;
-			if(!c_aio[i].aio_buf) perror("buffer alloc error!!!\n");
-		}
-
-		n_size = (size_t *)calloc(net.n, sizeof(size_t));
-		for(int i = 0; i < net.n; i++){
-			layer* l = &net.layers[i];
-			if (l->type == CONVOLUTIONAL){
-				n_size[i] = l->n + l->nweights;
-			}
-		}
-
-        cudaDeviceSynchronize();
-    }
-#endif
-
-#ifdef TWO_STAGE
-    if(global_layer_weights == NULL)
-    {
-        
-        //BUFFER SIZE
-        size_t buf_size = (max_size_of_n + max_size_of_nweights) * 20; // n-MB
-
-		/***** Direct I/O ON *****/
-		if (buf_size == max_size_of_n + max_size_of_nweights){
-		   buf_size += 1024;
-		} 
-		/***** Direct I/O ON *****/
-		
-        printf("global_layer creation! %d(%d)\n", buf_size*4, (max_size_of_nweights+max_size_of_n)*sizeof(float));
-		//LAYER SIZE
-		n_size = (size_t *)calloc(net.n, sizeof(size_t));
-    	kernel = (cudaEvent_t *)malloc(net.n * sizeof(cudaEvent_t));
-		for (int i = 0; i < net.n; i++){
-			layer *l = &net.layers[i];
-			if (l->type == CONVOLUTIONAL){
-				n_size[i] = l->n + l->nweights;
-			}
-
-    		cudaEventCreate(&kernel[i]);
-		}
-
-//		//UM
-		cudaMallocManaged((float *)&hGlobal_layer_weights, buf_size*sizeof(float), cudaMemAttachHost);
-
-//		//ZERO-COPY
-//        cudaHostAlloc((float *)&hGlobal_layer_weights, buf_size*sizeof(float), cudaHostAllocMapped);
-
-        cudaDeviceSynchronize();
-    }
-#endif //TWO_STAGE
-
 #ifdef NVTX
     nvtxRangeEnd(nvtx_alloc_buffer);
 #endif //NVTX
@@ -2295,13 +2166,6 @@ void load_connected_weights(layer l, FILE *fp, int transpose)
     fread(l.biases, sizeof(float), l.outputs, fp);
     fread(l.weights, sizeof(float), l.outputs*l.inputs, fp);
 #endif
-#ifdef SYNC
-    int read_bytes;
-    read_bytes = fread(l.biases, sizeof(float), l.outputs, fp);
-    printf("connected_biases size : %d\n",read_bytes);
-    read_bytes = fread(l.weights, sizeof(float), l.outputs*l.inputs, fp);
-    printf("connected_weights size : %d\n",read_bytes);
-#endif
 
     if(transpose){
         transpose_matrix(l.weights, l.inputs, l.outputs);
@@ -2366,63 +2230,7 @@ void load_convolutional_weights_binary(layer l, FILE *fp)
 #endif
 }
 
-#ifdef TWO_STAGE
-void load_convolutional_weights(layer *l, FILE *fp)
-{
-#ifndef ONDEMAND_LOAD
-    if(l->binary){
-        //load_convolutional_weights_binary(l, fp);
-        //return;
-    }
-    int num = l->nweights;
-    int read_bytes;
-    read_bytes = fread(l->biases, sizeof(float), l->n, fp);
-    if (read_bytes > 0 && read_bytes < l->n) printf("\n Warning: Unexpected end of wights-file! l.biases - l.index = %d \n", l->index);
-    //fread(l.weights, sizeof(float), num, fp); // as in connected layer
-    if (l->batch_normalize && (!l->dontloadscales)){
-        read_bytes = fread(l->scales, sizeof(float), l->n, fp);
-        if (read_bytes > 0 && read_bytes < l->n) printf("\n Warning: Unexpected end of wights-file! l.scales - l.index = %d \n", l->index);
-        read_bytes = fread(l->rolling_mean, sizeof(float), l->n, fp);
-        if (read_bytes > 0 && read_bytes < l->n) printf("\n Warning: Unexpected end of wights-file! l.rolling_mean - l.index = %d \n", l->index);
-        read_bytes = fread(l->rolling_variance, sizeof(float), l->n, fp);
-        if (read_bytes > 0 && read_bytes < l->n) printf("\n Warning: Unexpected end of wights-file! l.rolling_variance - l.index = %d \n", l->index);
-        if(0){
-            int i;
-            for(i = 0; i < l->n; ++i){
-                printf("%g, ", l->rolling_mean[i]);
-            }
-            printf("\n");
-            for(i = 0; i < l->n; ++i){
-                printf("%g, ", l->rolling_variance[i]);
-            }
-            printf("\n");
-        }
-        if(0){
-            fill_cpu(l->n, 0, l->rolling_mean, 1);
-            fill_cpu(l->n, 0, l->rolling_variance, 1);
-        }
-    }
-    read_bytes = fread(l->weights, sizeof(float), num, fp);
-    if (read_bytes > 0 && read_bytes < l->n) printf("\n Warning: Unexpected end of wights-file! l.weights - l.index = %d \n", l->index);
-    //if(l.adam){
-    //    fread(l.m, sizeof(float), num, fp);
-    //    fread(l.v, sizeof(float), num, fp);
-    //}
-    //if(l.c == 3) scal_cpu(num, 1./256, l.weights, 1);
-    if (l->flipped) {
-        transpose_matrix(l->weights, (l->c/l->groups)*l->size*l->size, l->n);
-    }
-    //if (l.binary) binarize_weights(l.weights, l.n, (l.c/l.groups)*l.size*l.size, l.weights);
-#ifdef GPU
-    if(gpu_index >= 0){
-        push_convolutional_layer(*l);
-    }
-#endif
-#endif //ONDEMAND_LOAD
-}
-#endif
-
-#if defined SEQUENTIAL || defined SYNC || defined ASYNC
+#if defined SEQUENTIAL
 void load_convolutional_weights(layer *l, FILE *fp)
 {
     if(l->binary){
@@ -2525,9 +2333,6 @@ void load_implicit_weights(layer l, FILE *fp)
 
 void load_weights_upto(network *net, char *filename, int cutoff)
 {
-#ifdef TWO_STAGE
-    sum_bytes_arr = (int *)calloc(net->n+1,sizeof(int));
-#endif
 
 #ifdef NVTX
     nvtxRangeId_t nvtx_load_weights;
@@ -2566,10 +2371,6 @@ void load_weights_upto(network *net, char *filename, int cutoff)
     *net->cur_iteration = get_current_batch(*net);
     printf(", trained: %.0f K-images (%.0f Kilo-batches_64) \n", (float)(*net->seen / 1000), (float)(*net->seen / 64000));
     int transpose = (major > 1000) || (minor > 1000);
-
-#ifdef SYNC
-    printf("start bytes %d\n",ftell(fp));
-#endif
 
     int i;
     for(i = 0; i < net->n && i < cutoff; ++i){

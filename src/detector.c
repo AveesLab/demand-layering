@@ -1608,24 +1608,12 @@ void calc_anchors(char *datacfg, int num_of_clusters, int width, int height, int
 void test_detector(char *datacfg, char *cfgfile, char *weightfile, char *filename, float thresh,
     float hier_thresh, int dont_show, int ext_output, int save_labels, char *outfile, int letter_box, int benchmark_layers)
 {
-#if defined ASYNC || defined TWO_STAGE
-    printMEM();
-#endif
-
     list *options = read_data_cfg(datacfg);
     double before_infer = get_time_point();
     char *name_list = option_find_str(options, "names", "data/names.list");
     int names_size = 0;
     char **names = get_labels_custom(name_list, &names_size); //get_labels(name_list);
 
-#ifndef TWO_STAGE
-    image **alphabet = load_alphabet();
-    network net = parse_network_cfg_custom(cfgfile, 1, 1); // set batch=1
-    if (weightfile) {
-        net.weights_file_name = weightfile;
-        load_weights(&net, weightfile);
-    }
-#else
     double image_time = get_time_point();
     image **alphabet = load_alphabet();
     printf("alphabet image time = %lfms\n",((double)get_time_point() - image_time)/1000);
@@ -1640,7 +1628,6 @@ void test_detector(char *datacfg, char *cfgfile, char *weightfile, char *filenam
 #endif
     }
 	printf("load_weights time : %.2lfms\n",((double)get_time_point()-st)/1000);
-#endif //not TWO_STAGE
 
     if (net.letter_box) letter_box = 1;
     net.benchmark_layers = benchmark_layers;
@@ -1792,31 +1779,12 @@ void test_detector(char *datacfg, char *cfgfile, char *weightfile, char *filenam
 //    for(int a=0; a<net.n; a++) 
 //        printf("%d,%0.3lf,%0.3lf,%0.3lf\n",a,r_time[a]/1000.0,c_time[a]/1000.0,k_time[a]/1000.0);
 
-#if defined SYNC || defined ASYNC || defined TWO_STAGE
-    mem();
-#endif
-
 //    FILE* jfp = fopen("/aveesSSD1TB/etc/csv_txt/measuring_RCE_1111/m_directio_cache_off_0k_10.csv", "wb");
 //    fprintf(jfp,"r_time,c_time,k_time\n");
 //    for(int a=0; a<162; a++) 
 //        fprintf(jfp,"%0.2lf,%0.2lf,%0.2lf\n",r_time[a],c_time[a],k_time[a]);
 //    fclose(jfp);
 
-#ifdef TWO_STAGE
-    // For DL Circular 2-Stage Buffer (Managed/Zero-Copy)
-    cudaFree(hGlobal_layer_weights);
-
-    int i;
-    const int nsize = 8;
-    for (j = 0; j < nsize; ++j) {
-        for (i = 32; i < 127; ++i) {
-            free_image(alphabet[j][i]);
-        }
-        free(alphabet[j]);
-        cudaEventDestroy(kernel[j]);
-    }
-    free(alphabet);
-#else
     int i;
     const int nsize = 8;
     for (j = 0; j < nsize; ++j) {
@@ -1826,7 +1794,6 @@ void test_detector(char *datacfg, char *cfgfile, char *weightfile, char *filenam
         free(alphabet[j]);
     }
     free(alphabet);
-#endif
 
 #ifndef SEQUENTIAL
     free_network(net);

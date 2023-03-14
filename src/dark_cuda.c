@@ -589,15 +589,6 @@ void cuda_push_array(float *x_gpu, float *x, size_t n)
     cudaError_t status = cudaMemcpy(x_gpu, x, size, cudaMemcpyHostToDevice);
     //cudaError_t status = cudaMemcpyAsync(x_gpu, x, size, cudaMemcpyHostToDevice, get_cuda_stream());
 #endif
-#if defined SYNC || defined ASYNC
-//    cudaError_t status = cudaMemcpy(x_gpu, x, size, cudaMemcpyHostToDevice);
-//    cudaError_t status = cudaMemcpyAsync(x_gpu, x, size, cudaMemcpyHostToDevice, get_cuda_stream());
-    cudaError_t status = cudaMemcpyAsync(x_gpu, x, size, cudaMemcpyHostToDevice, get_cuda_memcpy_stream());
-#endif // SYNC, ASYNC
-#ifdef TWO_STAGE
-    //cudaError_t status = cudaMemcpy(x_gpu, x, size, cudaMemcpyHostToDevice);
-    cudaError_t status = cudaMemcpyAsync(x_gpu, x, size, cudaMemcpyHostToDevice, get_cuda_stream());
-#endif
 
     CHECK_CUDA(status);
 }

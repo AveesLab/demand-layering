@@ -902,12 +902,6 @@ void predict_classifier(char *datacfg, char *cfgfile, char *weightfile, char *fi
         if (filename) break;
     }
 
-#ifdef SYNC
-	free(CPU_BUF_A);
-	free(CPU_BUF_B);
-	cudaFree(GPU_BUF_A);
-	cudaFree(GPU_BUF_B);
-#endif
     free(indexes);
     free_network(net);
     free_list_contents_kvp(options);
