@@ -122,6 +122,7 @@ void forward_network_gpu(network net, network_state state)
     int l_offset =0;
 
     for(i = 0; i < net.n; ++i){
+        printf("--------------%d layer--------------\n", i);
         state.index = i;
         layer *l = &net.layers[i];
         if(l->delta_gpu && state.train){
@@ -179,7 +180,7 @@ void forward_network_gpu(network net, network_state state)
 
             // READ : CPU buffer
 			read_bytes = read(fp, hGlobal_layer_weights, read_size); // READ function
-
+            printf("hGlobal_layer_weights: %lf\n", *hGlobal_layer_weights);
             sum_weights_bytes += psize;
             if(sum_weights_bytes%512 != 0){
                 lseek(fp, -512, SEEK_CUR);
@@ -188,11 +189,31 @@ void forward_network_gpu(network net, network_state state)
             // COPY : GPU buffer
 			cuda_push_array(global_layer_weights, hGlobal_layer_weights, read_size/sizeof(float));
 			cudaStreamSynchronize(get_cuda_stream());
+            //printf("global_layer_weights: %lf\n", *global_layer_weights);
 
             //Distribute buffer pointer
             l_offset = buffer_offset/sizeof(float);
+            printf("buffer_offset: %d\n", buffer_offset);
+            printf("l_offset: %d\n", l_offset);
+
             l->biases_gpu = global_layer_weights + l_offset;
             l->weights_gpu = global_layer_weights + l->n + l_offset;
+
+            float *C_Copy = (float *)malloc(sizeof(float) * l->n * (l->out_w+l->out_h));
+            float sum_of_output =0.0;
+
+            cudaMemcpy(C_Copy, l->biases_gpu, sizeof(float) *  l->n , cudaMemcpyDeviceToHost);// Loop over the elements of C and print their values        
+            for (int i = 0; i < ( l->n ); i++) {
+                sum_of_output += C_Copy[i];
+                if (i == (l->n -1) ) printf("l->biases_gpu: %f\n", sum_of_output);
+            }
+
+            cudaMemcpy(C_Copy, l->weights_gpu, sizeof(float) *  l->n , cudaMemcpyDeviceToHost);// Loop over the elements of C and print their values        
+            for (int i = 0; i < (l->n ); i++) {
+                sum_of_output += C_Copy[i];
+                if (i == (l->n -1) ) printf("l->weights_gpu: %f\n", sum_of_output);
+            }         
+
 
         }
 #endif //ONDEMAND_LOAD
