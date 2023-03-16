@@ -122,8 +122,9 @@ void forward_network_gpu(network net, network_state state)
     int l_offset =0;
 
     for(i = 0; i < net.n; ++i){
-        printf("--------------%d layer--------------\n", i);
         state.index = i;
+        printf("--------------%d layer--------------\n", i);
+
         layer *l = &net.layers[i];
         if(l->delta_gpu && state.train){
             fill_ongpu(l->outputs * l->batch, 0, l->delta_gpu, 1);
@@ -161,6 +162,8 @@ void forward_network_gpu(network net, network_state state)
         //new weights - only biases+weights
         if(l->type == CONVOLUTIONAL)
         {
+                        int output = lseek(fp,0,SEEK_CUR);
+            printf("pointer: %d\n", output);
             l->batch_normalize = 0;
             int read_bytes = 0;
             //size_t nsize = l->n + l->nweights;
@@ -185,6 +188,8 @@ void forward_network_gpu(network net, network_state state)
             if(sum_weights_bytes%512 != 0){
                 lseek(fp, -512, SEEK_CUR);
             }
+            printf("psize: %d\n", psize);
+            printf("sum_weights_bytes: %d\n", sum_weights_bytes);
 
             // COPY : GPU buffer
 			cuda_push_array(global_layer_weights, hGlobal_layer_weights, read_size/sizeof(float));
@@ -199,21 +204,23 @@ void forward_network_gpu(network net, network_state state)
             l->biases_gpu = global_layer_weights + l_offset;
             l->weights_gpu = global_layer_weights + l->n + l_offset;
 
-            float *C_Copy = (float *)malloc(sizeof(float) * l->n * (l->out_w+l->out_h));
-            float sum_of_output =0.0;
+            float *biases_Copy = (float *)malloc(sizeof(float) * l->n * (l->out_w+l->out_h));
+            float *weights_Copy = (float *)malloc(sizeof(float) * l->n * (l->out_w+l->out_h));
+            float sum_of_biases_Copy =0.0;
+            float sum_of_weights_Copy =0.0;
+            cudaMemcpy(biases_Copy, l->biases_gpu, sizeof(float) *  l->n , cudaMemcpyDeviceToHost);// Loop over the elements of C and print their values        
+            cudaMemcpy(weights_Copy, l->weights_gpu, sizeof(float) *  l->n , cudaMemcpyDeviceToHost);// Loop over the elements of C and print their values        
 
-            cudaMemcpy(C_Copy, l->biases_gpu, sizeof(float) *  l->n , cudaMemcpyDeviceToHost);// Loop over the elements of C and print their values        
-            for (int i = 0; i < ( l->n ); i++) {
-                sum_of_output += C_Copy[i];
-                if (i == (l->n -1) ) printf("l->biases_gpu: %f\n", sum_of_output);
-            }
-
-            cudaMemcpy(C_Copy, l->weights_gpu, sizeof(float) *  l->n , cudaMemcpyDeviceToHost);// Loop over the elements of C and print their values        
-            for (int i = 0; i < (l->n ); i++) {
-                sum_of_output += C_Copy[i];
-                if (i == (l->n -1) ) printf("l->weights_gpu: %f\n", sum_of_output);
-            }         
-
+            //if (state.index == 191 || state.index == 195 || state.index == 199){
+                for (int i = 0; i < ( l->n ); i++) {
+                    sum_of_biases_Copy += biases_Copy[i];
+                    sum_of_weights_Copy += weights_Copy[i];
+                    if (i==0) printf("\nbiases[0], weights[0]: %0.3f, %0.3f\n", biases_Copy[0], weights_Copy[0]);
+                    //printf("%0.3d, %0.3lf, %0.3lf\n", i, biases_Copy[i], weights_Copy[i]);
+                    if (i == (l->n -1) ) printf("sum of l->biases_gpu: %f\n", sum_of_biases_Copy);
+                    if (i == (l->n -1) ) printf("sum of l->weights_gpu: %f\n", sum_of_weights_Copy); 
+                }
+//}
 
         }
 #endif //ONDEMAND_LOAD
