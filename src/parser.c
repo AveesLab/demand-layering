@@ -1745,8 +1745,8 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
     if(global_layer_weights == NULL)
     {
         printf("global_layer creation! %d\n",max_size_of_nweights+max_size_of_n);
-        //int buf_size = max_size_of_nweights + max_size_of_n + 1024;
-        int buf_size =  166000128;
+        int buf_size = max_size_of_nweights + max_size_of_n + 1024;
+
         //CPU BUFFER
 #ifndef DIRECT_IO
         hGlobal_layer_weights = (float *)malloc(buf_size*sizeof(float));

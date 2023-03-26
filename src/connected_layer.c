@@ -94,6 +94,10 @@ connected_layer make_connected_layer(int batch, int steps, int inputs, int outpu
 
     //float scale = 1./sqrt(inputs);
     float scale = sqrt(2.f/inputs);
+
+    if(max_size_of_nweights < l.nweights) max_size_of_nweights = l.nweights;//
+    if(max_size_of_n < l.n) max_size_of_n = l.n;//
+
     for(i = 0; i < outputs*inputs; ++i){
         l.weights[i] = scale*rand_uniform(-1, 1);
     }
