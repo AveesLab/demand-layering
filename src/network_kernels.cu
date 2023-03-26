@@ -218,21 +218,35 @@ void forward_network_gpu(network net, network_state state)
             cudaMemcpy(biases_Copy, l->biases_gpu, sizeof(float) *  l->n , cudaMemcpyDeviceToHost);// Loop over the elements of C and print their values        
             cudaMemcpy(weights_Copy, l->weights_gpu, sizeof(float) *  l->nweights , cudaMemcpyDeviceToHost);// Loop over the elements of C and print their values        
 
-            //if (state.index == 191 || state.index == 195 || state.index == 199){
-                for (int i = 0; i < ( l->n ); i++) {
-                    sum_of_biases_Copy += biases_Copy[i];
-                    sum_of_weights_Copy += weights_Copy[i];
+            // Here !
+            int split_layer_id = 8;
+            int how_many_split = 4;
+
+            for (int i = 0; i < ( l->n ); i++) {
+                sum_of_biases_Copy += biases_Copy[i];
+                sum_of_weights_Copy += weights_Copy[i];
+                if (state.index == split_layer_id && how_many_split){
+                    if (i==0) {
+                        for (int k =0; k < how_many_split; k++) {
+                        printf("\n-- %d, biases[0], weights[0]: %0.3f, %0.3f\n", k, biases_Copy[(l->n/how_many_split*k)+0], weights_Copy[(l->nweights/how_many_split*k)+0]);
+                        printf("\n-- %d, biases[1], weights[1]: %0.3f, %0.3f\n", k, biases_Copy[(l->n/how_many_split*k)+1], weights_Copy[(l->nweights/how_many_split*k)+1]);
+                        printf("\n-- %d, biases[2], weights[2]: %0.3f, %0.3f\n", k, biases_Copy[(l->n/how_many_split*k)+2], weights_Copy[(l->nweights/how_many_split*k)+2]);
+                        printf("\n-- %d, biases[3], weights[3]: %0.3f, %0.3f\n\n", k, biases_Copy[(l->n/how_many_split*k)+3], weights_Copy[(l->nweights/how_many_split*k)+3]);
+                        }
+                    }
+                }
+                else{
                     if (i==0) {
                         printf("\nbiases[0], weights[0]: %0.3f, %0.3f\n", biases_Copy[0], weights_Copy[0]);
-                        // printf("\nbiases[1], weights[1]: %0.3f, %0.3f\n", biases_Copy[l->n/4*1], weights_Copy[l->nweights/4*1]);
-                        // printf("\nbiases[2], weights[2]: %0.3f, %0.3f\n", biases_Copy[l->n/4*2], weights_Copy[l->nweights/4*2]);
-                        // printf("\nbiases[3], weights[3]: %0.3f, %0.3f\n", biases_Copy[l->n/4*3], weights_Copy[l->nweights/4*3]);
+                        //printf("\nbiases[1], weights[1]: %0.3f, %0.3f\n", biases_Copy[l->n/4*1], weights_Copy[l->nweights/4*1]);
+                        //printf("\nbiases[2], weights[2]: %0.3f, %0.3f\n", biases_Copy[l->n/4*2], weights_Copy[l->nweights/4*2]);
+                        //printf("\nbiases[3], weights[3]: %0.3f, %0.3f\n", biases_Copy[l->n/4*3], weights_Copy[l->nweights/4*3]);
                     }
                     //printf("%0.3d, %0.3lf, %0.3lf\n", i, biases_Copy[i], weights_Copy[i]);
                     if (i == (l->n -1) ) printf("sum of l->biases_gpu: %f\n", sum_of_biases_Copy);
                     if (i == (l->n -1) ) printf("sum of l->weights_gpu: %f\n", sum_of_weights_Copy); 
                 }
-//}
+            }
 
         }
 #endif //ONDEMAND_LOAD
