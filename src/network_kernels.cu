@@ -160,7 +160,7 @@ void forward_network_gpu(network net, network_state state)
 //        // |read_offset-->|---------------read_size------------------>|
 
         //new weights - only biases+weights
-        if(l->type == CONVOLUTIONAL)
+        if(l->type == CONVOLUTIONAL||l->type == CONNECTED)
         {
                         int output = lseek(fp,0,SEEK_CUR);
             printf("pointer: %d\n", output);

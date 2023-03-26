@@ -70,6 +70,7 @@ connected_layer make_connected_layer(int batch, int steps, int inputs, int outpu
     l.out_w = 1;
     l.out_c = outputs;
     l.n = l.out_c;
+    l.nweights = l.out_c * l.c;
     l.size = 1;
     l.stride = l.stride_x = l.stride_y = 1;
     l.pad = 0;
