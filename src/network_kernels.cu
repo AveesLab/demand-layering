@@ -183,17 +183,24 @@ void forward_network_gpu(network net, network_state state)
 
             // READ : CPU buffer
 			read_bytes = read(fp, hGlobal_layer_weights, read_size); // READ function
-            printf("hGlobal_layer_weights: %lf\n", *hGlobal_layer_weights);
+            printf("hGlobal_layer_weights: %lf\n", hGlobal_layer_weights[0]);
+            printf("hGlobal_layer_weights: %lf\n", hGlobal_layer_weights[l->n]);
             sum_weights_bytes += psize;
             if(sum_weights_bytes%512 != 0){
                 lseek(fp, -512, SEEK_CUR);
             }
             printf("psize: %d\n", psize);
+            printf("read_size: %d\n", read_size);
             printf("sum_weights_bytes: %d\n", sum_weights_bytes);
 
             // COPY : GPU buffer
-			cuda_push_array(global_layer_weights, hGlobal_layer_weights, read_size/sizeof(float));
-			cudaStreamSynchronize(get_cuda_stream());
+            if(l->type == CONVOLUTIONAL){
+			    cuda_push_array(global_layer_weights, hGlobal_layer_weights, read_size/sizeof(float));
+            }
+            else{
+                cuda_push_array(global_layer_weights, hGlobal_layer_weights, read_size/sizeof(float));
+            }
+            cudaStreamSynchronize(get_cuda_stream());
             //printf("global_layer_weights: %lf\n", *global_layer_weights);
 
             //Distribute buffer pointer
