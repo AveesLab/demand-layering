@@ -339,15 +339,75 @@ void update_connected_layer_gpu(connected_layer l, int batch, float learning_rat
     scal_ongpu(l.inputs*l.outputs, momentum, l.weight_updates_gpu, 1);
 }
 
+// void forward_connected_layer_gpu(connected_layer l, network_state state)
+// {
+//     fill_ongpu(l.outputs*l.batch, 0, l.output_gpu, 1);
+
+//     int m = l.batch;
+//     int k = l.inputs;
+//     int n = l.outputs;
+//     float * a = state.input;
+//     float * b = l.weights_gpu;
+//     float * c = l.output_gpu;
+// #ifdef CUDNN
+//     float one = 1;    // alpha[0], beta[0]
+//     float alpha = 1, beta = 0;
+
+//     CHECK_CUDNN(cudnnConvolutionForward(cudnn_handle(),
+//         &alpha, //&one,
+//         l.srcTensorDesc,
+//         state.input,
+//         l.weightDesc,
+//         l.weights_gpu,
+//         l.convDesc,
+//         l.fw_algo,
+//         state.workspace,
+//         l.workspace_size,
+//         &beta,  //&one,
+//         l.dstTensorDesc,
+//         l.output_gpu));
+// #else // CUDNN
+//     gemm_ongpu(0,1,m,n,k,1,a,k,b,k,1,c,n);
+
+// #endif // CUDNN
+
+// 	if (l.batch_normalize) {
+// 		forward_batchnorm_layer_gpu(l, state);
+// 	}
+// 	else {
+// 		add_bias_gpu(l.output_gpu, l.biases_gpu, l.batch, l.outputs, 1);
+// 	}
+
+
+//     float *C_Copy = (float *)malloc(sizeof(float) * m * n);
+//     float sum_of_output =0.0;
+//     cudaMemcpy(C_Copy, l.output_gpu, sizeof(float) * m * n, cudaMemcpyDeviceToHost);// Loop over the elements of C and print their values
+//     for (int i = 0; i < m; i++) {
+//         for (int j = 0; j < n; j++) {
+//             sum_of_output+=C_Copy[i * n + j];
+//         }
+//     }
+//     printf("\nsum_of_output: %f\n", sum_of_output);
+//     free(C_Copy);
+
+//     //for(i = 0; i < l.batch; ++i) axpy_ongpu(l.outputs, 1, l.biases_gpu, 1, l.output_gpu + i*l.outputs, 1);
+//     activate_array_ongpu(l.output_gpu, l.outputs*l.batch, l.activation);
+// }
+
+
 void forward_connected_layer_gpu(connected_layer l, network_state state)
 {
     fill_ongpu(l.outputs*l.batch, 0, l.output_gpu, 1);
 
-    int m = l.batch;
+    int m = l.outputs;
     int k = l.inputs;
-    int n = l.outputs;
-    float * a = state.input;
-    float * b = l.weights_gpu;
+    int n = l.batch;
+    printf("n : %d \n ", n);
+    // int m = l.batch;
+    // int k = l.inputs;
+    // int n = l.outputs;
+    float * a = l.weights_gpu;
+    float * b = state.input;
     float * c = l.output_gpu;
 #ifdef CUDNN
     float one = 1;    // alpha[0], beta[0]
@@ -367,7 +427,9 @@ void forward_connected_layer_gpu(connected_layer l, network_state state)
         l.dstTensorDesc,
         l.output_gpu));
 #else // CUDNN
-    gemm_ongpu(0,1,m,n,k,1,a,k,b,k,1,c,n);
+    // gemm_ongpu(0,1,m,n,k,1,a,k,b,k,1,c,n);
+    gemm_ongpu(0, 0, m, n, k, 1, a, k, b, n, 1, c, n);
+
 #endif // CUDNN
 
 	if (l.batch_normalize) {
@@ -376,9 +438,64 @@ void forward_connected_layer_gpu(connected_layer l, network_state state)
 	else {
 		add_bias_gpu(l.output_gpu, l.biases_gpu, l.batch, l.outputs, 1);
 	}
+
+    float *outputs_Copy = (float *)malloc(m * n);
+    float *biases_Copy = (float *)malloc(l.n);
+    float *weights_Copy = (float *)malloc(l.nweights);
+    float sum_of_outputs_Copy = 0.0;
+    float sum_of_biases_Copy =0.0;
+    float sum_of_weights_Copy =0.0;
+    cudaMemcpy(outputs_Copy, l.output_gpu, m * n, cudaMemcpyDeviceToHost);// Loop over the elements of C and print their values   
+    cudaMemcpy(biases_Copy, l.biases_gpu, l.n, cudaMemcpyDeviceToHost);// Loop over the elements of C and print their values   
+    cudaMemcpy(weights_Copy, l.weights_gpu, l.nweights, cudaMemcpyDeviceToHost);// Loop over the elements of C and print their values        
+        
+    for (int x = 0; x < 1040; x++) {
+        // if (state.index == 8) printf(" -- , outputs[%d]: %0.3f\n", x, outputs_Copy[x]);
+        if (state.index == 8) printf(" -- , outputs[%d]: %0.3f\n", x, outputs_Copy[x]);
+    }
+    for (int x = 0; x < m; x++) {
+        sum_of_weights_Copy += weights_Copy[x];
+        sum_of_outputs_Copy += outputs_Copy[x];
+    }
+    printf(" m : %d \n", m);
+    printf(" -- , sum of outputs : %0.3f \n", sum_of_outputs_Copy);
+    // printf("\n -- , outputs[00]: %0.3f\n", outputs_Copy[1000]);
+    // printf("\n -- , outputs[01]: %0.3f\n", outputs_Copy[1020]);
+    // printf("\n -- , outputs[02]: %0.3f\n", outputs_Copy[1010]);
+    // printf("\n -- , outputs[03]: %0.3f\n", outputs_Copy[1022]);
+    // printf("\n -- , outputs[1023]: %0.3f\n", outputs_Copy[1023]);
+    // printf("\n -- , outputs[1024]: %0.3f\n", outputs_Copy[1024]);
+    // printf("\n -- , outputs[1025]: %0.3f\n", outputs_Copy[1025]);
+    // printf("\n -- , outputs[1026]: %0.3f\n", outputs_Copy[1026]);
+    printf("\n");
+
+    free(outputs_Copy);       
+    free(biases_Copy);       
+    free(weights_Copy);
+
+    float *C_Copy = (float *)malloc(sizeof(float) * m * n);
+    float sum_of_output =0.0;
+    cudaMemcpy(C_Copy, l.output_gpu, sizeof(float) * m * n, cudaMemcpyDeviceToHost);// Loop over the elements of C and print their values
+    for (int i = 0; i < 4096; i++) {
+        sum_of_output+=C_Copy[i];
+    }
+    printf("\nsum_of_output: %f\n", sum_of_output);
+    free(C_Copy);
+    // float *outputs_Copy = (float *)malloc(m * n);
+    // float sum_of_outputs_Copy =0.0;
+    // cudaMemcpy(outputs_Copy, l.output_gpu, m * n, cudaMemcpyDeviceToHost);// Loop over the elements of C and print their values        
+    // for (int x = 0; x < 1024; x++) {
+    //     if (state.index == 8) printf("-- , outputs[%d]: %0.3f\n", x, outputs_Copy[x]);
+    // }
+    // printf("\n");
+
+    // free(outputs_Copy);
+
+
     //for(i = 0; i < l.batch; ++i) axpy_ongpu(l.outputs, 1, l.biases_gpu, 1, l.output_gpu + i*l.outputs, 1);
     activate_array_ongpu(l.output_gpu, l.outputs*l.batch, l.activation);
 }
+
 
 void backward_connected_layer_gpu(connected_layer l, network_state state)
 {
